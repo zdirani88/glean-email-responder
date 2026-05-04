@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Gmail Glean Reply Drafter Options</title>
+    <style>
+      body {
+        color: #202124;
+        font: 14px/1.45 Arial, sans-serif;
+        margin: 32px;
+        max-width: 640px;
+      }
+      label {
+        display: block;
+        font-weight: 700;
+        margin-top: 18px;
+      }
+      input {
+        box-sizing: border-box;
+        font: inherit;
+        margin-top: 6px;
+        padding: 8px;
+        width: 100%;
+      }
+      button {
+        background: #1a73e8;
+        border: 0;
+        border-radius: 4px;
+        color: white;
+        cursor: pointer;
+        font: inherit;
+        margin-top: 18px;
+        padding: 8px 12px;
+      }
+      #status {
+        margin-left: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Gmail Glean Reply Drafter</h1>
+    <p>Shortcut: Cmd+Shift+G on Mac, Ctrl+Shift+G on Windows.</p>
+    <label>
+      Backend base URL
+      <input id="backendBaseUrl" placeholder="http://localhost:8787" />
+    </label>
+    <label>
+      Backend shared secret
+      <input id="backendSecret" type="password" placeholder="Optional for local dev" />
+    </label>
+    <button id="save">Save</button><span id="status"></span>
+    <script src="options.js"></script>
+  </body>
+</html>

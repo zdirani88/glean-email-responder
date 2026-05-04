@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Gmail Glean Reply Drafter",
+  "description": "Draft Gmail replies from visible thread context using a backend Glean integration.",
+  "version": "0.1.0",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": ["https://mail.google.com/*", "http://localhost:8787/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://mail.google.com/*"],
+      "js": ["contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "draft-reply": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+G",
+        "mac": "Command+Shift+G"
+      },
+      "description": "Draft a Gmail reply with Glean"
+    }
+  },
+  "options_page": "options.html"
+}
