@@ -17,6 +17,10 @@ export interface ExtractionFailure {
   composer?: ComposerTarget;
 }
 
+export interface ExtractionOptions {
+  userInstruction?: string;
+}
+
 const EDITOR_SELECTORS = [
   "[role='textbox'][contenteditable='true'][aria-label*='Message Body']",
   "[role='textbox'][contenteditable='true'][aria-label*='Body']",
@@ -25,14 +29,10 @@ const EDITOR_SELECTORS = [
   "[role='textbox'][contenteditable='true']",
 ];
 
-export function extractVisibleThreadForActiveComposer(): ExtractionResult | ExtractionFailure {
+export function extractVisibleThreadForActiveComposer(options: ExtractionOptions = {}): ExtractionResult | ExtractionFailure {
   const composer = findActiveComposer();
   if (!composer) {
     return { ok: false, error: "Open a Gmail reply box and place your cursor in it first." };
-  }
-
-  if (getComposerText(composer.editor).trim()) {
-    return { ok: false, error: "The active composer is not empty. Clear it before drafting.", composer };
   }
 
   const messages = extractVisibleMessages();
@@ -40,6 +40,7 @@ export function extractVisibleThreadForActiveComposer(): ExtractionResult | Extr
     return { ok: false, error: "Could not find at least one usable visible message in this Gmail thread.", composer };
   }
 
+  const composerText = getComposerText(composer.editor).trim();
   const payload: DraftRequestPayload = {
     threadSubject: extractSubject(),
     participantsVisible: extractParticipants(messages),
@@ -51,6 +52,8 @@ export function extractVisibleThreadForActiveComposer(): ExtractionResult | Extr
   };
   const currentUser = inferCurrentUser();
   if (currentUser) payload.currentUser = currentUser;
+  if (options.userInstruction?.trim()) payload.userInstruction = options.userInstruction.trim();
+  if (composerText && !isProgressComposerText(composerText)) payload.currentDraft = composerText;
 
   return { ok: true, payload, composer };
 }
@@ -119,6 +122,11 @@ function findComposerRoot(editor: HTMLElement) {
 
 function getComposerText(editor: HTMLElement) {
   return normalizeText(editor.innerText || editor.textContent || "");
+}
+
+function isProgressComposerText(value: string) {
+  const normalized = value.replace(/[*_`]/g, "").trim().toLowerCase();
+  return normalized === "checking your writing style" || normalized === "drafting your reply";
 }
 
 function extractSubject() {

@@ -16,6 +16,8 @@ export interface DraftRequestPayload {
   participantsVisible: string[];
   currentUser?: EmailParticipant;
   messages: ExtractedMessage[];
+  userInstruction?: string;
+  currentDraft?: string;
   activeComposerDetected: boolean;
   pageUrl: string;
   timestamp: string;

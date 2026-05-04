@@ -20,6 +20,8 @@ export const draftRequestSchema = z.object({
       })
     )
     .min(1),
+  userInstruction: z.string().max(2000).optional(),
+  currentDraft: z.string().max(10000).optional(),
   activeComposerDetected: z.boolean(),
   pageUrl: z.string(),
   timestamp: z.string(),

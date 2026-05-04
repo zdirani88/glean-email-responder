@@ -50,20 +50,34 @@ export async function draftWithGlean(prompt: string, config: AppConfig): Promise
 
   const data = (await res.json()) as GleanChatResponse;
   const responseMessages = data.messages ?? data.followUpResults ?? [];
-  const aiMessage =
-    responseMessages.find((message) => message.author === "GLEAN_AI" || message.author === "ASSISTANT") ??
-    responseMessages.at(-1);
+  const assistantDrafts = responseMessages
+    .filter((message) => message.author === "GLEAN_AI" || message.author === "ASSISTANT")
+    .map(getMessageText)
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .filter((text) => !isProgressMessage(text));
 
-  const draft =
-    aiMessage?.fragments?.map((fragment) => fragment.text ?? "").join("") ??
-    aiMessage?.content ??
-    "";
+  const draft = assistantDrafts.at(-1) ?? getMessageText(responseMessages.at(-1)).trim();
 
   if (!draft.trim()) {
     throw new Error("Glean returned an empty draft.");
   }
 
   return draft.trim();
+}
+
+function getMessageText(message: GleanChatMessage | undefined) {
+  return message?.fragments?.map((fragment) => fragment.text ?? "").join("") ?? message?.content ?? "";
+}
+
+function isProgressMessage(text: string) {
+  const normalized = text.replace(/[*_`]/g, "").trim().toLowerCase();
+  return (
+    normalized === "checking your writing style" ||
+    normalized === "checking your writing style..." ||
+    normalized === "drafting your reply" ||
+    normalized === "drafting your reply..."
+  );
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {

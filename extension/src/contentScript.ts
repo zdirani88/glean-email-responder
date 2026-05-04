@@ -29,7 +29,9 @@ document.addEventListener("keydown", (event) => {
 });
 
 async function draftReply() {
-  const extraction = extractVisibleThreadForActiveComposer();
+  const existingComposer = findActiveComposer();
+  const userInstruction = getInstruction(existingComposer);
+  const extraction = extractVisibleThreadForActiveComposer({ userInstruction });
   const composer = extraction.ok ? extraction.composer : extraction.composer ?? findActiveComposer();
   if (composer) lastComposer = composer;
 
@@ -70,17 +72,18 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
     el.innerHTML = `
       <style>
         .ggd-inline-ui {
-          align-items: center;
+          align-items: stretch;
           background: #ffffff;
           border: 1px solid #dadce0;
           border-radius: 6px;
           box-shadow: 0 1px 3px rgba(60, 64, 67, 0.18);
           color: #202124;
-          display: flex;
+          display: grid;
+          grid-template-columns: minmax(220px, 1fr) auto auto;
           font: 12px/1.4 Arial, sans-serif;
           gap: 8px;
           margin: 8px 0;
-          max-width: 520px;
+          max-width: 780px;
           padding: 7px 9px;
           z-index: 9999;
         }
@@ -98,8 +101,19 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           color: #202124;
         }
         .ggd-inline-ui .message {
-          flex: 1;
+          grid-column: 1 / -1;
           min-width: 0;
+        }
+        .ggd-inline-ui textarea {
+          border: 1px solid #dadce0;
+          border-radius: 4px;
+          box-sizing: border-box;
+          color: #202124;
+          font: 13px/1.35 Arial, sans-serif;
+          min-height: 34px;
+          padding: 7px 8px;
+          resize: vertical;
+          width: 100%;
         }
         .ggd-inline-ui.error {
           border-color: #f6aea9;
@@ -107,6 +121,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
         }
       </style>
       <span class="message">Ready</span>
+      <textarea class="instruction" placeholder="Optional: tell Glean how to steer or revise this reply"></textarea>
       <button type="button" class="draft">Draft reply</button>
       <button type="button" class="secondary regenerate">Regenerate</button>
     `;
@@ -130,4 +145,9 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       if (message) message.textContent = text;
     },
   };
+}
+
+function getInstruction(composer: ReturnType<typeof findActiveComposer>) {
+  const root = composer ? getComposerRoot(composer) : document.body;
+  return root.querySelector<HTMLTextAreaElement>(".ggd-inline-ui .instruction")?.value ?? "";
 }

@@ -21,6 +21,13 @@ Rules:
 - Do not invent commitments, dates, attachments, approvals, or facts.
 - If the latest ask cannot be answered from context, write a useful reply that acknowledges the ask and proposes a next step.
 - Avoid overly formal filler.
+- If a current draft is provided, revise that draft according to the user's instruction while preserving facts from the visible thread.
+
+User instruction:
+${payload.userInstruction || "(none)"}
+
+Current draft in composer:
+${payload.currentDraft || "(none)"}
 
 Thread subject:
 ${payload.threadSubject || "(not visible)"}
