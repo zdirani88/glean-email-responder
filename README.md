@@ -5,7 +5,7 @@ DOM-first Chrome extension and backend for drafting Gmail replies with Glean.
 The MVP proves this loop:
 
 1. Open a Gmail thread and click Reply.
-2. Press `Cmd+Shift+G` on macOS or `Ctrl+Shift+G` on Windows.
+2. Press `Cmd+Shift+Y` on macOS or `Ctrl+Shift+Y` on Windows.
 3. The extension extracts visible Gmail thread context from the DOM.
 4. The extension sends structured context to the local backend.
 5. The backend calls Glean Client API chat.
@@ -66,7 +66,7 @@ Then load `extension/dist` in Chrome:
 4. Select `extension/dist`.
 5. Open the extension options page and set the backend URL, usually `http://localhost:8787`.
 
-If `BACKEND_SHARED_SECRET` is set on the backend, enter the same value in the extension options page.
+For local development, leave `BACKEND_SHARED_SECRET` blank. If you set it on the backend, enter the same value in the extension options page.
 
 ## Current MVP Behavior
 

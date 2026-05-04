@@ -19,8 +19,8 @@
   "commands": {
     "draft-reply": {
       "suggested_key": {
-        "default": "Ctrl+Shift+G",
-        "mac": "Command+Shift+G"
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
       },
       "description": "Draft a Gmail reply with Glean"
     }
