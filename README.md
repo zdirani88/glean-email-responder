@@ -15,6 +15,7 @@ The MVP proves this loop:
 
 - `extension/` - Chrome Manifest V3 extension, content script, background service worker, options page.
 - `backend/` - Express TypeScript backend with `POST /draft-email-reply`.
+- `helper-app/` - Electron desktop helper that runs the backend locally and stores the Glean token securely.
 - `shared/` - Shared request and response TypeScript types.
 
 ## Backend Setup
@@ -68,11 +69,48 @@ Then load `extension/dist` in Chrome:
 
 For local development, leave `BACKEND_SHARED_SECRET` blank. If you set it on the backend, enter the same value in the extension options page.
 
+## Desktop Helper App
+
+For non-technical users, package the local backend as a desktop app:
+
+```bash
+npm run package:helper:mac
+```
+
+The generated macOS installer is written under:
+
+```text
+helper-app/dist/
+```
+
+The helper app:
+
+- Runs the local backend on `http://localhost:8787`
+- Stores the Glean Client API token with Electron secure storage
+- Tests the Glean token before use
+- Bundles the built Chrome extension folder for Load unpacked setup
+- Can start at login
+- Shows Chrome extension setup steps
+
+### Glean Token Setup For Users
+
+In the helper app, ask the user to:
+
+1. Open Glean in their browser.
+2. Click the Glean logo in the bottom-left corner.
+3. Open Admin Console or Settings.
+4. Open API tokens.
+5. Create a Client API token.
+6. Add `CHAT` and `SEARCH` scopes.
+7. Copy the token and paste it into Gmail Glean Helper.
+
+If the user does not see API tokens, they likely need a Glean admin or developer to create the token.
+
 ## Current MVP Behavior
 
 - Works only on `mail.google.com`.
 - Extracts visible DOM content only.
-- Blocks drafting if the active composer already has text.
+- Replaces existing composer text when drafting or revising.
 - Returns inline errors without clearing composer content.
 - Inserts plain text into the focused Gmail editor.
 - Never auto-sends.
@@ -84,4 +122,6 @@ For local development, leave `BACKEND_SHARED_SECRET` blank. If you set it on the
 npm run build
 npm run typecheck
 npm run dev:backend
+npm run dev:helper
+npm run package:helper:mac
 ```

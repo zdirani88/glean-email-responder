@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gmail Glean Helper</title>
+    <style>
+      :root {
+        color: #202124;
+        font: 14px/1.45 Arial, sans-serif;
+      }
+      body {
+        background: #f6f8fb;
+        margin: 0;
+      }
+      main {
+        display: grid;
+        gap: 18px;
+        margin: 0 auto;
+        max-width: 820px;
+        padding: 28px;
+      }
+      header {
+        display: grid;
+        gap: 8px;
+      }
+      h1 {
+        font-size: 28px;
+        letter-spacing: 0;
+        line-height: 1.1;
+        margin: 0;
+      }
+      h2 {
+        font-size: 16px;
+        margin: 0 0 10px;
+      }
+      p {
+        color: #5f6368;
+        margin: 0;
+      }
+      section {
+        background: #ffffff;
+        border: 1px solid #dfe3ea;
+        border-radius: 12px;
+        box-shadow: 0 1px 2px rgba(32, 33, 36, 0.08);
+        padding: 18px;
+      }
+      .status {
+        align-items: center;
+        display: flex;
+        gap: 10px;
+      }
+      .dot {
+        border-radius: 999px;
+        height: 10px;
+        width: 10px;
+      }
+      .dot.on {
+        background: #188038;
+      }
+      .dot.off {
+        background: #b3261e;
+      }
+      .form {
+        display: grid;
+        gap: 14px;
+      }
+      label {
+        color: #3c4043;
+        display: grid;
+        font-weight: 700;
+        gap: 7px;
+      }
+      input[type="text"],
+      input[type="password"] {
+        border: 1px solid #dfe3ea;
+        border-radius: 10px;
+        box-sizing: border-box;
+        font: inherit;
+        height: 42px;
+        padding: 0 12px;
+        width: 100%;
+      }
+      input:focus {
+        border-color: #8ab4f8;
+        box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
+        outline: none;
+      }
+      .row {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .check {
+        align-items: center;
+        display: flex;
+        font-weight: 400;
+        gap: 8px;
+      }
+      button {
+        background: #1a73e8;
+        border: 0;
+        border-radius: 10px;
+        color: white;
+        cursor: pointer;
+        font: 700 14px/1 Arial, sans-serif;
+        min-height: 40px;
+        padding: 0 14px;
+      }
+      button.secondary {
+        background: #eef2f7;
+        color: #202124;
+      }
+      button:disabled {
+        cursor: default;
+        opacity: 0.65;
+      }
+      ol {
+        color: #3c4043;
+        margin: 0;
+        padding-left: 22px;
+      }
+      li + li {
+        margin-top: 8px;
+      }
+      code {
+        background: #f1f3f4;
+        border-radius: 5px;
+        padding: 2px 5px;
+      }
+      .hint {
+        color: #5f6368;
+        font-size: 12px;
+        font-weight: 400;
+      }
+      .message {
+        border-radius: 10px;
+        min-height: 20px;
+        padding: 10px 12px;
+      }
+      .message.neutral {
+        background: #eef4ff;
+        color: #1967d2;
+      }
+      .message.success {
+        background: #e6f4ea;
+        color: #137333;
+      }
+      .message.error {
+        background: #fce8e6;
+        color: #b3261e;
+      }
+      .split {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: 1fr 1fr;
+      }
+      @media (max-width: 760px) {
+        .split {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Gmail Glean Helper</h1>
+        <p>Runs the local backend that lets the Chrome extension ask Glean to draft Gmail replies.</p>
+      </header>
+
+      <section>
+        <div class="status">
+          <span id="statusDot" class="dot off"></span>
+          <strong id="statusText">Checking server...</strong>
+          <span id="tokenState" class="hint"></span>
+        </div>
+      </section>
+
+      <section class="form">
+        <h2>Connect Glean</h2>
+        <label>
+          Glean server URL
+          <input id="serverUrl" type="text" placeholder="https://your-instance-be.glean.com" />
+        </label>
+        <label>
+          Glean Client API token
+          <input id="token" type="password" placeholder="Paste token to save or test" />
+          <span class="hint">Saved with Electron secure storage. Leave blank when saving to keep the existing token.</span>
+        </label>
+        <label class="check">
+          <input id="launchAtLogin" type="checkbox" />
+          Start Gmail Glean Helper when I log in
+        </label>
+        <div class="row">
+          <button id="save" type="button">Save and start</button>
+          <button id="test" type="button" class="secondary">Test Glean</button>
+          <button id="restart" type="button" class="secondary">Restart server</button>
+        </div>
+        <div id="message" class="message neutral">Paste a Client API token, then test the connection.</div>
+      </section>
+
+      <div class="split">
+        <section>
+          <h2>Create a Glean token</h2>
+          <ol>
+            <li>Open Glean in your browser.</li>
+            <li>Click the Glean logo in the bottom-left corner.</li>
+            <li>Open Admin Console or Settings.</li>
+            <li>Open API tokens.</li>
+            <li>Create a Client API token.</li>
+            <li>Add the <code>CHAT</code> and <code>SEARCH</code> scopes.</li>
+            <li>Copy the token and paste it above.</li>
+          </ol>
+        </section>
+
+        <section>
+          <h2>Chrome extension</h2>
+          <ol>
+            <li>Click <strong>Open extension folder</strong>.</li>
+            <li>In Chrome, open <code>chrome://extensions</code>.</li>
+            <li>Enable Developer Mode.</li>
+            <li>Click Load unpacked and select the opened folder.</li>
+            <li>Set backend URL to <code>http://localhost:8787</code>.</li>
+            <li>Leave backend shared secret blank for local use.</li>
+            <li>Use <code>Cmd+Shift+Y</code> in a Gmail reply.</li>
+          </ol>
+          <p class="hint" style="margin-top: 10px">Packaged extension folder: <code id="extensionPath">Checking...</code></p>
+          <div class="row" style="margin-top: 14px">
+            <button id="openExtensionFolder" type="button">Open extension folder</button>
+            <button id="openExtensions" type="button" class="secondary">Open extensions</button>
+            <button id="openShortcuts" type="button" class="secondary">Open shortcuts</button>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

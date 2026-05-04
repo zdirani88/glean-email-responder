@@ -5,14 +5,17 @@
   "description": "DOM-first Chrome extension and backend for drafting Gmail replies with Glean.",
   "type": "module",
   "scripts": {
-    "build": "npm run build -w @gmail-glean-reply-drafter/shared && npm run build -w @gmail-glean-reply-drafter/backend && npm run build -w @gmail-glean-reply-drafter/extension",
+    "build": "npm run build -w @gmail-glean-reply-drafter/shared && npm run build -w @gmail-glean-reply-drafter/backend && npm run build -w @gmail-glean-reply-drafter/extension && npm run build -w @gmail-glean-reply-drafter/helper-app",
     "dev:backend": "npm run dev -w @gmail-glean-reply-drafter/backend",
-    "typecheck": "npm run typecheck -w @gmail-glean-reply-drafter/shared && npm run typecheck -w @gmail-glean-reply-drafter/backend && npm run typecheck -w @gmail-glean-reply-drafter/extension"
+    "dev:helper": "npm run dev -w @gmail-glean-reply-drafter/helper-app",
+    "package:helper:mac": "npm run package:mac -w @gmail-glean-reply-drafter/helper-app",
+    "typecheck": "npm run typecheck -w @gmail-glean-reply-drafter/shared && npm run typecheck -w @gmail-glean-reply-drafter/backend && npm run typecheck -w @gmail-glean-reply-drafter/extension && npm run typecheck -w @gmail-glean-reply-drafter/helper-app"
   },
   "workspaces": [
     "shared",
     "backend",
-    "extension"
+    "extension",
+    "helper-app"
   ],
   "devDependencies": {
     "typescript": "^5.8.3"

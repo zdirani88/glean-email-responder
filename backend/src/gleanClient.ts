@@ -66,6 +66,35 @@ export async function draftWithGlean(prompt: string, config: AppConfig): Promise
   return draft.trim();
 }
 
+export async function testGleanConnection(config: AppConfig): Promise<void> {
+  if (config.gleanStubMode) {
+    return;
+  }
+
+  if (!config.gleanServerUrl || !config.gleanApiToken) {
+    throw new Error("Glean is not configured. Add a Glean server URL and Client API token.");
+  }
+
+  const searchUrl = `${config.gleanServerUrl.replace(/\/$/, "")}/rest/api/v1/search`;
+  const res = await fetchWithTimeout(
+    searchUrl,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.gleanApiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: "test", pageSize: 1 }),
+    },
+    config.gleanTimeoutMs
+  );
+
+  if (!res.ok) {
+    const body = await readErrorBody(res);
+    throw new Error(`Glean search ${res.status}: ${body}`);
+  }
+}
+
 function getMessageText(message: GleanChatMessage | undefined) {
   return message?.fragments?.map((fragment) => fragment.text ?? "").join("") ?? message?.content ?? "";
 }

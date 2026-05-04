@@ -1,0 +1,43 @@
+{
+  "name": "@gmail-glean-reply-drafter/helper-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop helper app that runs the local Gmail Glean Reply Drafter backend.",
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "npm run build && electron dist/main.cjs",
+    "package:mac": "npm run build -w @gmail-glean-reply-drafter/extension && npm run build && electron-builder --mac dmg",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@gmail-glean-reply-drafter/backend": "file:../backend",
+    "electron-is-dev": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "electron": "35.2.1",
+    "electron-builder": "^26.0.12",
+    "esbuild": "^0.25.3",
+    "typescript": "^5.8.3"
+  },
+  "build": {
+    "appId": "com.gmailglean.replyhelper",
+    "productName": "Gmail Glean Helper",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../extension/dist",
+        "to": "extension"
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": ["dmg"]
+    }
+  }
+}
