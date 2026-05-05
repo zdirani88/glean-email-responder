@@ -1,6 +1,6 @@
 {
   "name": "@gmail-glean-reply-drafter/helper-app",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "Desktop helper app that runs the local Gmail Glean Reply Drafter backend.",
   "type": "module",
@@ -37,7 +37,9 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
     }
   }
 }

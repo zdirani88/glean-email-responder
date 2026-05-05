@@ -1,7 +1,9 @@
 import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { promisify } from "node:util";
 import type { Server } from "node:http";
 import { createBackendApp, testGleanConnection, type AppConfig } from "@gmail-glean-reply-drafter/backend";
 
@@ -28,6 +30,7 @@ const DEFAULT_CONFIG: HelperConfig = {
   launchAtLogin: false,
 };
 
+const execFileAsync = promisify(execFile);
 let mainWindow: BrowserWindow | undefined;
 let server: Server | undefined;
 let currentConfig = DEFAULT_CONFIG;
@@ -80,11 +83,18 @@ ipcMain.handle("helper:restart-server", async () => {
 });
 
 ipcMain.handle("helper:open-url", async (_event, url: string) => {
+  if (url.startsWith("chrome://")) {
+    await openChromeUrl(url);
+    return;
+  }
+
   await shell.openExternal(url);
 });
 
 ipcMain.handle("helper:open-extension-folder", async () => {
-  const result = await shell.openPath(getBundledExtensionPath());
+  const extensionPath = await prepareInstallableExtensionFolder();
+  await openChromeUrl("chrome://extensions");
+  const result = await shell.openPath(extensionPath);
   if (result) throw new Error(result);
 });
 
@@ -164,7 +174,7 @@ function getPublicStatus(): PublicStatus {
     gleanServerUrl: currentConfig.gleanServerUrl,
     hasToken: Boolean(currentConfig.encryptedToken),
     launchAtLogin: currentConfig.launchAtLogin,
-    extensionPath: getBundledExtensionPath(),
+    extensionPath: getInstallableExtensionPath(),
   };
   if (lastServerError) status.serverError = lastServerError;
   return status;
@@ -176,6 +186,32 @@ function getBundledExtensionPath() {
   }
 
   return resolve(app.getAppPath(), "..", "extension", "dist");
+}
+
+function getInstallableExtensionPath() {
+  return join(app.getPath("desktop"), "Gmail Glean Reply Extension");
+}
+
+async function prepareInstallableExtensionFolder() {
+  const source = getBundledExtensionPath();
+  const destination = getInstallableExtensionPath();
+
+  if (!existsSync(source)) {
+    throw new Error(`Bundled extension folder was not found at ${source}`);
+  }
+
+  await mkdir(destination, { recursive: true });
+  await cp(source, destination, { recursive: true, force: true });
+  return destination;
+}
+
+async function openChromeUrl(url: string) {
+  if (process.platform === "darwin") {
+    await execFileAsync("open", ["-a", "Google Chrome", url]);
+    return;
+  }
+
+  await shell.openExternal(url);
 }
 
 async function getConfigPath() {

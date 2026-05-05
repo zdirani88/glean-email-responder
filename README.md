@@ -71,11 +71,13 @@ For local development, leave `BACKEND_SHARED_SECRET` blank. If you set it on the
 
 ## Desktop Helper App
 
-For non-technical users, package the local backend as a desktop app:
+For non-technical users, package the local backend as a desktop app. For distributable builds, use the release command so the helper app patch version increments before the `.dmg` is created:
 
 ```bash
-npm run package:helper:mac
+npm run release:helper:mac
 ```
+
+Use `npm run package:helper:mac` only for throwaway local packaging tests when you do not want to bump the app version.
 
 The generated macOS installer is written under:
 
@@ -88,7 +90,7 @@ The helper app:
 - Runs the local backend on `http://localhost:8787`
 - Stores the Glean Client API token with Electron secure storage
 - Tests the Glean token before use
-- Bundles the built Chrome extension folder for Load unpacked setup
+- Bundles the built Chrome extension and copies it to `~/Desktop/Gmail Glean Reply Extension` for Load unpacked setup
 - Can start at login
 - Shows Chrome extension setup steps
 
@@ -124,4 +126,5 @@ npm run typecheck
 npm run dev:backend
 npm run dev:helper
 npm run package:helper:mac
+npm run release:helper:mac
 ```

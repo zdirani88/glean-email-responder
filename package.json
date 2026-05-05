@@ -9,6 +9,7 @@
     "dev:backend": "npm run dev -w @gmail-glean-reply-drafter/backend",
     "dev:helper": "npm run dev -w @gmail-glean-reply-drafter/helper-app",
     "package:helper:mac": "npm run package:mac -w @gmail-glean-reply-drafter/helper-app",
+    "release:helper:mac": "npm version patch -w @gmail-glean-reply-drafter/helper-app --no-git-tag-version && npm run package:helper:mac",
     "typecheck": "npm run typecheck -w @gmail-glean-reply-drafter/shared && npm run typecheck -w @gmail-glean-reply-drafter/backend && npm run typecheck -w @gmail-glean-reply-drafter/extension && npm run typecheck -w @gmail-glean-reply-drafter/helper-app"
   },
   "workspaces": [

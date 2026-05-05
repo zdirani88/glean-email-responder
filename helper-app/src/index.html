@@ -218,15 +218,15 @@
         <section>
           <h2>Chrome extension</h2>
           <ol>
-            <li>Click <strong>Open extension folder</strong>.</li>
-            <li>In Chrome, open <code>chrome://extensions</code>.</li>
+            <li>Click <strong>Open extension folder</strong>. This copies the extension to your Desktop and opens Chrome extensions.</li>
             <li>Enable Developer Mode.</li>
-            <li>Click Load unpacked and select the opened folder.</li>
+            <li>Click Load unpacked.</li>
+            <li>Choose Desktop, then select <code>Gmail Glean Reply Extension</code>.</li>
             <li>Set backend URL to <code>http://localhost:8787</code>.</li>
             <li>Leave backend shared secret blank for local use.</li>
             <li>Use <code>Cmd+Shift+Y</code> in a Gmail reply.</li>
           </ol>
-          <p class="hint" style="margin-top: 10px">Packaged extension folder: <code id="extensionPath">Checking...</code></p>
+          <p class="hint" style="margin-top: 10px">Extension install folder: <code id="extensionPath">Checking...</code></p>
           <div class="row" style="margin-top: 14px">
             <button id="openExtensionFolder" type="button">Open extension folder</button>
             <button id="openExtensions" type="button" class="secondary">Open extensions</button>
