@@ -82,7 +82,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           box-shadow: 0 10px 28px rgba(32, 33, 36, 0.12), 0 1px 2px rgba(32, 33, 36, 0.10);
           color: #202124;
           display: grid;
-          grid-template-columns: auto minmax(260px, 1fr) auto auto;
+          grid-template-columns: auto minmax(260px, 1fr) auto auto auto;
           font: 13px/1.35 Arial, sans-serif;
           gap: 10px;
           margin: 10px 0;
@@ -114,6 +114,10 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           min-width: 28px;
           padding: 0;
           width: 28px;
+        }
+        .ggd-inline-ui .close svg {
+          height: 16px;
+          width: 16px;
         }
         .ggd-inline-ui .close:hover {
           background: #f1f3f4;
@@ -168,9 +172,12 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           background: #edf1f7;
         }
         .ggd-inline-ui .message {
+          align-items: center;
           color: #5f6368;
+          display: flex;
           font-size: 12px;
-          grid-column: 1 / -1;
+          gap: 8px;
+          grid-column: 2 / -1;
           min-height: 16px;
           min-width: 0;
           overflow: hidden;
@@ -179,6 +186,20 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
         }
         .ggd-inline-ui .message strong {
           color: #202124;
+        }
+        .ggd-inline-ui .message .muted {
+          color: #6f7681;
+        }
+        .ggd-inline-ui .spinner {
+          animation: ggdSpin 900ms linear infinite;
+          border: 2px solid #d8e2f3;
+          border-top-color: #1a73e8;
+          border-radius: 999px;
+          box-sizing: border-box;
+          display: inline-block;
+          flex: 0 0 auto;
+          height: 14px;
+          width: 14px;
         }
         .ggd-inline-ui textarea {
           background: #f8fafc;
@@ -219,14 +240,24 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           0%, 100% { opacity: 0.72; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.06); }
         }
+        @keyframes ggdSpin {
+          to { transform: rotate(360deg); }
+        }
         @media (max-width: 720px) {
           .ggd-inline-ui {
             grid-template-columns: 1fr auto;
           }
           .ggd-inline-ui .brand {
-            grid-column: 1 / -1;
+            grid-column: 1 / 2;
           }
           .ggd-inline-ui textarea {
+            grid-column: 1 / -1;
+          }
+          .ggd-inline-ui .close {
+            grid-column: 2 / 3;
+            grid-row: 1 / 2;
+          }
+          .ggd-inline-ui .message {
             grid-column: 1 / -1;
           }
         }
@@ -235,7 +266,11 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       <textarea class="instruction" placeholder="Add guidance or revision notes"></textarea>
       <button type="button" class="draft">Draft</button>
       <button type="button" class="secondary regenerate">Revise</button>
-      <button type="button" class="close" title="Close" aria-label="Close">x</button>
+      <button type="button" class="close" title="Close" aria-label="Close">
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <path d="M5.8 5.8 14.2 14.2M14.2 5.8 5.8 14.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+        </svg>
+      </button>
       <span class="message">Ready when you are.</span>
     `;
     root.prepend(el);
@@ -254,7 +289,9 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       buttons.forEach((button) => {
         button.disabled = true;
       });
-      if (message) message.innerHTML = `<strong>${escapeHtml(text)}</strong>`;
+      if (message) {
+        message.innerHTML = `<span class="spinner" aria-hidden="true"></span><strong>${escapeHtml(text)}</strong><span class="muted">This usually takes a few seconds.</span>`;
+      }
     },
     setError(text: string) {
       el.classList.remove("loading");
@@ -287,7 +324,7 @@ function renderToast(text: string) {
   toast.innerHTML = `
     <style>
       .ggd-toast {
-        align-items: center;
+        align-items: flex-start;
         background: #ffffff;
         border: 1px solid #dfe3ea;
         border-left: 4px solid #1a73e8;
@@ -296,11 +333,12 @@ function renderToast(text: string) {
         color: #202124;
         display: grid;
         font: 13px/1.4 Arial, sans-serif;
-        gap: 8px;
+        gap: 12px;
         grid-template-columns: auto 1fr auto;
         left: 50%;
-        max-width: min(420px, calc(100vw - 32px));
-        padding: 10px 12px;
+        max-width: min(480px, calc(100vw - 32px));
+        min-width: min(420px, calc(100vw - 32px));
+        padding: 14px 14px 14px 16px;
         position: fixed;
         top: 18px;
         transform: translateX(-50%);
@@ -319,6 +357,8 @@ function renderToast(text: string) {
         width: 24px;
       }
       .ggd-toast .copy {
+        display: grid;
+        gap: 2px;
         min-width: 0;
       }
       .ggd-toast .title {
@@ -327,17 +367,24 @@ function renderToast(text: string) {
       }
       .ggd-toast .detail {
         color: #5f6368;
-        margin-top: 1px;
       }
       .ggd-toast .close {
+        align-items: center;
         background: transparent;
         border: 0;
         border-radius: 999px;
         color: #5f6368;
         cursor: pointer;
+        display: inline-flex;
         font: 700 18px/1 Arial, sans-serif;
         height: 28px;
+        justify-content: center;
+        padding: 0;
         width: 28px;
+      }
+      .ggd-toast .close svg {
+        height: 16px;
+        width: 16px;
       }
       .ggd-toast .close:hover {
         background: #f1f3f4;
@@ -346,7 +393,11 @@ function renderToast(text: string) {
     </style>
     <span class="spark">G</span>
     <span class="copy"><span class="title">No active reply box</span><span class="detail">${escapeHtml(text)}</span></span>
-    <button type="button" class="close" title="Close" aria-label="Close">x</button>
+    <button type="button" class="close" title="Close" aria-label="Close">
+      <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+        <path d="M5.8 5.8 14.2 14.2M14.2 5.8 5.8 14.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+      </svg>
+    </button>
   `;
 
   document.body.append(toast);
