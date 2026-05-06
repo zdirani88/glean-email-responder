@@ -5,6 +5,7 @@
     <title>Gmail Glean Reply Drafter Options</title>
     <style>
       body {
+        background: #f6f8fb;
         color: #202124;
         font: 14px/1.45 Arial, sans-serif;
         margin: 32px;
@@ -16,6 +17,8 @@
         margin-top: 18px;
       }
       input {
+        border: 1px solid #dfe3ea;
+        border-radius: 8px;
         box-sizing: border-box;
         font: inherit;
         margin-top: 6px;
@@ -42,11 +45,11 @@
     <p>Shortcut: Cmd+Shift+Y on Mac, Ctrl+Shift+Y on Windows.</p>
     <label>
       Backend base URL
-      <input id="backendBaseUrl" placeholder="http://localhost:8787" />
+      <input id="backendBaseUrl" placeholder="http://127.0.0.1:8787" />
     </label>
     <label>
       Backend shared secret
-      <input id="backendSecret" type="password" placeholder="Optional for local dev" />
+      <input id="backendSecret" type="password" placeholder="Pair from the helper app" />
     </label>
     <button id="save">Save</button><span id="status"></span>
     <script src="options.js"></script>

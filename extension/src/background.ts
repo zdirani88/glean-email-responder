@@ -1,13 +1,13 @@
 import type { BackgroundMessage, BackgroundResponse, ExtensionConfig } from "./types";
 
 const DEFAULT_CONFIG: ExtensionConfig = {
-  backendBaseUrl: "http://localhost:8787",
+  backendBaseUrl: "http://127.0.0.1:8787",
 };
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const existing = await chrome.storage.sync.get(["backendBaseUrl"]);
+  const existing = await chrome.storage.local.get(["backendBaseUrl"]);
   if (!existing.backendBaseUrl) {
-    await chrome.storage.sync.set(DEFAULT_CONFIG);
+    await chrome.storage.local.set(DEFAULT_CONFIG);
   }
 });
 
@@ -57,7 +57,7 @@ async function requestDraft(payload: BackgroundMessage["payload"]): Promise<Back
 }
 
 async function getConfig(): Promise<ExtensionConfig> {
-  const stored = await chrome.storage.sync.get(["backendBaseUrl", "backendSecret"]);
+  const stored = await chrome.storage.local.get(["backendBaseUrl", "backendSecret"]);
   const config: ExtensionConfig = {
     backendBaseUrl: String(stored.backendBaseUrl || DEFAULT_CONFIG.backendBaseUrl),
   };

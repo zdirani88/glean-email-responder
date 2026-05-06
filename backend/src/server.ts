@@ -4,6 +4,6 @@ import { loadConfig } from "./config.js";
 const config = loadConfig();
 const app = createBackendApp(config);
 
-app.listen(config.port, () => {
-  console.info(`gmail-glean-reply-drafter backend listening on ${config.port}`);
+app.listen(config.port, config.host, () => {
+  console.info(`gmail-glean-reply-drafter backend listening on ${config.host}:${config.port}`);
 });

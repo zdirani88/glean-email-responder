@@ -53,6 +53,8 @@ with:
 
 The token is read only from backend environment variables and is never bundled into the extension.
 
+By default, the backend binds to `127.0.0.1` only. Set `BACKEND_SHARED_SECRET` for any non-helper local development setup and paste the same value into the extension options page.
+
 ## Extension Setup
 
 ```bash
@@ -65,9 +67,9 @@ Then load `extension/dist` in Chrome:
 2. Enable Developer Mode.
 3. Click Load unpacked.
 4. Select `extension/dist`.
-5. Open the extension options page and set the backend URL, usually `http://localhost:8787`.
+5. Open the extension options page and set the backend URL, usually `http://127.0.0.1:8787`.
 
-For local development, leave `BACKEND_SHARED_SECRET` blank. If you set it on the backend, enter the same value in the extension options page.
+For local development, leave `BACKEND_SHARED_SECRET` blank only when you are testing a disposable dev backend. The packaged helper app generates and requires its own local pairing secret automatically.
 
 ## Desktop Helper App
 
@@ -87,10 +89,13 @@ helper-app/dist/
 
 The helper app:
 
-- Runs the local backend on `http://localhost:8787`
+- Runs the local backend on `http://127.0.0.1:8787`
+- Binds the backend to `127.0.0.1` and requires a generated local extension pairing secret
 - Stores the Glean Client API token with Electron secure storage
 - Tests the Glean token before use
 - Bundles the built Chrome extension and copies it to `~/Desktop/Gmail Glean Reply Extension` for Load unpacked setup
+- Opens a one-click pairing link so the extension can save the backend URL and local secret automatically
+- Lets the user clear the Glean token or rotate the local extension pairing secret
 - Can start at login
 - Shows Chrome extension setup steps
 

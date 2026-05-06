@@ -3,6 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
     <title>Gmail Glean Helper</title>
     <style>
       :root {
@@ -197,6 +201,7 @@
           <button id="save" type="button">Save and start</button>
           <button id="test" type="button" class="secondary">Test Glean</button>
           <button id="restart" type="button" class="secondary">Restart server</button>
+          <button id="clearToken" type="button" class="secondary">Clear token</button>
         </div>
         <div id="message" class="message neutral">Paste a Client API token, then test the connection.</div>
       </section>
@@ -222,15 +227,18 @@
             <li>Enable Developer Mode.</li>
             <li>Click Load unpacked.</li>
             <li>Choose Desktop, then select <code>Gmail Glean Reply Extension</code>.</li>
-            <li>Set backend URL to <code>http://localhost:8787</code>.</li>
-            <li>Leave backend shared secret blank for local use.</li>
+            <li>Click <strong>Pair extension</strong> to automatically save the local backend URL and secret.</li>
             <li>Use <code>Cmd+Shift+Y</code> in a Gmail reply.</li>
           </ol>
           <p class="hint" style="margin-top: 10px">Extension install folder: <code id="extensionPath">Checking...</code></p>
+          <p class="hint" style="margin-top: 8px">Pinned extension ID: <code id="extensionId">Checking...</code></p>
           <div class="row" style="margin-top: 14px">
             <button id="openExtensionFolder" type="button">Open extension folder</button>
+            <button id="pairExtension" type="button">Pair extension</button>
+            <button id="copyPairingLink" type="button" class="secondary">Copy pairing link</button>
             <button id="openExtensions" type="button" class="secondary">Open extensions</button>
             <button id="openShortcuts" type="button" class="secondary">Open shortcuts</button>
+            <button id="rotateSecret" type="button" class="secondary">Rotate pairing secret</button>
           </div>
         </section>
       </div>

@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, safeStorage, shell } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, safeStorage, shell } from "electron";
 import { execFile } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -11,6 +12,7 @@ interface HelperConfig {
   port: number;
   gleanServerUrl: string;
   encryptedToken?: string;
+  encryptedLocalSecret?: string;
   launchAtLogin: boolean;
 }
 
@@ -19,8 +21,10 @@ interface PublicStatus {
   port: number;
   gleanServerUrl: string;
   hasToken: boolean;
+  hasLocalSecret: boolean;
   launchAtLogin: boolean;
   extensionPath: string;
+  extensionId: string;
   serverError?: string;
 }
 
@@ -29,6 +33,8 @@ const DEFAULT_CONFIG: HelperConfig = {
   gleanServerUrl: "https://scio-prod-be.glean.com",
   launchAtLogin: false,
 };
+const BACKEND_HOST = "127.0.0.1";
+const EXTENSION_ID = "odjbnkdimjemoifcndjpopoiifpdnlbo";
 
 const execFileAsync = promisify(execFile);
 let mainWindow: BrowserWindow | undefined;
@@ -38,6 +44,7 @@ let lastServerError: string | undefined;
 
 app.whenReady().then(async () => {
   currentConfig = await loadHelperConfig();
+  currentConfig = await ensureLocalSecret(currentConfig);
   await startLocalServerSafely();
   createWindow();
 
@@ -52,9 +59,13 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-ipcMain.handle("helper:get-status", async (): Promise<PublicStatus> => getPublicStatus());
+ipcMain.handle("helper:get-status", async (event): Promise<PublicStatus> => {
+  assertTrustedSender(event.senderFrame?.url);
+  return getPublicStatus();
+});
 
 ipcMain.handle("helper:save-config", async (_event, input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean }) => {
+  assertTrustedSender(_event.senderFrame?.url);
   currentConfig = {
     ...currentConfig,
     gleanServerUrl: input.gleanServerUrl.trim() || DEFAULT_CONFIG.gleanServerUrl,
@@ -72,30 +83,61 @@ ipcMain.handle("helper:save-config", async (_event, input: { gleanServerUrl: str
 });
 
 ipcMain.handle("helper:test-glean", async (_event, input: { gleanServerUrl: string; token?: string }) => {
+  assertTrustedSender(_event.senderFrame?.url);
   const token = input.token?.trim() || decryptToken(currentConfig.encryptedToken);
   await testGleanConnection(toBackendConfig({ ...currentConfig, gleanServerUrl: input.gleanServerUrl }, token));
   return { ok: true };
 });
 
-ipcMain.handle("helper:restart-server", async () => {
+ipcMain.handle("helper:restart-server", async (event) => {
+  assertTrustedSender(event.senderFrame?.url);
   await restartLocalServerSafely();
   return getPublicStatus();
 });
 
 ipcMain.handle("helper:open-url", async (_event, url: string) => {
-  if (url.startsWith("chrome://")) {
+  assertTrustedSender(_event.senderFrame?.url);
+  if (url === "chrome://extensions" || url === "chrome://extensions/shortcuts") {
     await openChromeUrl(url);
     return;
   }
 
-  await shell.openExternal(url);
+  throw new Error("This helper can only open Chrome extension setup pages.");
 });
 
-ipcMain.handle("helper:open-extension-folder", async () => {
+ipcMain.handle("helper:open-extension-folder", async (event) => {
+  assertTrustedSender(event.senderFrame?.url);
   const extensionPath = await prepareInstallableExtensionFolder();
   await openChromeUrl("chrome://extensions");
   const result = await shell.openPath(extensionPath);
   if (result) throw new Error(result);
+});
+
+ipcMain.handle("helper:pair-extension", async (event) => {
+  assertTrustedSender(event.senderFrame?.url);
+  await prepareInstallableExtensionFolder();
+  await openChromeUrl(getExtensionPairingUrl());
+});
+
+ipcMain.handle("helper:copy-pairing-link", async (event) => {
+  assertTrustedSender(event.senderFrame?.url);
+  clipboard.writeText(getExtensionPairingUrl());
+});
+
+ipcMain.handle("helper:clear-glean-token", async (event) => {
+  assertTrustedSender(event.senderFrame?.url);
+  delete currentConfig.encryptedToken;
+  await saveHelperConfig(currentConfig);
+  await restartLocalServerSafely();
+  return getPublicStatus();
+});
+
+ipcMain.handle("helper:rotate-local-secret", async (event) => {
+  assertTrustedSender(event.senderFrame?.url);
+  currentConfig.encryptedLocalSecret = encryptToken(generateLocalSecret());
+  await saveHelperConfig(currentConfig);
+  await restartLocalServerSafely();
+  return getPublicStatus();
 });
 
 function createWindow() {
@@ -107,7 +149,17 @@ function createWindow() {
     title: "Gmail Glean Helper",
     webPreferences: {
       preload: join(app.getAppPath(), "dist", "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
     },
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    if (url !== mainWindow?.webContents.getURL()) {
+      event.preventDefault();
+    }
   });
 
   void mainWindow.loadFile(join(app.getAppPath(), "dist", "index.html"));
@@ -121,7 +173,7 @@ async function startLocalServer() {
 
   await new Promise<void>((resolve, reject) => {
     server = backend
-      .listen(currentConfig.port, () => resolve())
+      .listen(currentConfig.port, BACKEND_HOST, () => resolve())
       .on("error", (error: Error) => reject(error));
   });
 }
@@ -158,12 +210,14 @@ async function restartLocalServerSafely() {
 function toBackendConfig(config: HelperConfig, token?: string): AppConfig {
   const backendConfig: AppConfig = {
     port: config.port,
+    host: BACKEND_HOST,
     gleanServerUrl: config.gleanServerUrl,
     gleanTimeoutMs: 45000,
     gleanStubMode: false,
   };
 
   if (token) backendConfig.gleanApiToken = token;
+  backendConfig.sharedSecret = getLocalSecret(config);
   return backendConfig;
 }
 
@@ -173,8 +227,10 @@ function getPublicStatus(): PublicStatus {
     port: currentConfig.port,
     gleanServerUrl: currentConfig.gleanServerUrl,
     hasToken: Boolean(currentConfig.encryptedToken),
+    hasLocalSecret: Boolean(currentConfig.encryptedLocalSecret),
     launchAtLogin: currentConfig.launchAtLogin,
     extensionPath: getInstallableExtensionPath(),
+    extensionId: EXTENSION_ID,
   };
   if (lastServerError) status.serverError = lastServerError;
   return status;
@@ -214,6 +270,15 @@ async function openChromeUrl(url: string) {
   await shell.openExternal(url);
 }
 
+function getExtensionPairingUrl() {
+  const payload = {
+    backendBaseUrl: `http://${BACKEND_HOST}:${currentConfig.port}`,
+    backendSecret: getLocalSecret(currentConfig),
+  };
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `chrome-extension://${EXTENSION_ID}/options.html#pair=${encoded}`;
+}
+
 async function getConfigPath() {
   const dir = app.getPath("userData");
   await mkdir(dir, { recursive: true });
@@ -230,6 +295,24 @@ async function loadHelperConfig(): Promise<HelperConfig> {
   } catch {
     return DEFAULT_CONFIG;
   }
+}
+
+async function ensureLocalSecret(config: HelperConfig) {
+  if (config.encryptedLocalSecret) {
+    try {
+      getLocalSecret(config);
+      return config;
+    } catch {
+      // Recreate the local pairing secret if secure storage cannot decrypt the old one.
+    }
+  }
+
+  const nextConfig = {
+    ...config,
+    encryptedLocalSecret: encryptToken(generateLocalSecret()),
+  };
+  await saveHelperConfig(nextConfig);
+  return nextConfig;
 }
 
 async function saveHelperConfig(config: HelperConfig) {
@@ -252,5 +335,23 @@ function decryptToken(encryptedToken: string | undefined) {
     return safeStorage.decryptString(Buffer.from(encryptedToken, "base64"));
   } catch {
     return undefined;
+  }
+}
+
+function generateLocalSecret() {
+  return randomBytes(32).toString("base64url");
+}
+
+function getLocalSecret(config: HelperConfig) {
+  const secret = decryptToken(config.encryptedLocalSecret);
+  if (!secret) {
+    throw new Error("Local extension pairing secret is unavailable. Reset the local pairing secret and pair the extension again.");
+  }
+  return secret;
+}
+
+function assertTrustedSender(url: string | undefined) {
+  if (!url?.startsWith("file://")) {
+    throw new Error("Blocked untrusted helper request.");
   }
 }

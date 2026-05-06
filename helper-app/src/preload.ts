@@ -8,4 +8,8 @@ contextBridge.exposeInMainWorld("gmailGleanHelper", {
   restartServer: () => ipcRenderer.invoke("helper:restart-server"),
   openUrl: (url: string) => ipcRenderer.invoke("helper:open-url", url),
   openExtensionFolder: () => ipcRenderer.invoke("helper:open-extension-folder"),
+  pairExtension: () => ipcRenderer.invoke("helper:pair-extension"),
+  copyPairingLink: () => ipcRenderer.invoke("helper:copy-pairing-link"),
+  clearGleanToken: () => ipcRenderer.invoke("helper:clear-glean-token"),
+  rotateLocalSecret: () => ipcRenderer.invoke("helper:rotate-local-secret"),
 });

@@ -3,8 +3,9 @@
   "name": "Gmail Glean Reply Drafter",
   "description": "Draft Gmail replies from visible thread context using a backend Glean integration.",
   "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsk+SFN85kCTSC9zYWZsKdctc69CfLW8Ow1m3+GayE11ld+tLr3Y0aSphxXm/56Pr24FCEuotipS6T4zppvF5YY4ZgioPGwEjQqy2ACG3iNFEaCDRsC6jANkP7AUMe/nKmsA1Br0ATFLVi7eLrzbMLCszPQX1PLybcUDTAEy3R4B3H3ZvF/srKv4dwecxNt0geIYMbBNp2p8ycZTMIgtk+dEsrk/EjndA/Au0O1AJI07xM5mZRfmcnsk36QpA4ZlJcaDCTfsjPI4f7LPmejcZNqtQeBV9GaEN1+G4lfg8Brze/ZK0U3lyhE9CfzX8JHwegVBlRF29HfY6JTpIXFO2fQIDAQAB",
   "permissions": ["activeTab", "storage"],
-  "host_permissions": ["https://mail.google.com/*", "http://localhost:8787/*"],
+  "host_permissions": ["https://mail.google.com/*", "http://127.0.0.1:8787/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
