@@ -1,14 +1,21 @@
 import cors from "cors";
 import { timingSafeEqual } from "node:crypto";
 import express from "express";
+import { z } from "zod";
 import type { DraftErrorPayload, DraftResponsePayload } from "@gmail-glean-reply-drafter/shared";
 import type { AppConfig } from "./config.js";
 import { draftWithGlean, testGleanConnection } from "./gleanClient.js";
 import { buildReplyPrompt } from "./prompt.js";
 import { draftRequestSchema } from "./schema.js";
 
+const testGleanConnectionSchema = z.object({
+  gleanServerUrl: z.string().url().optional(),
+  gleanApiToken: z.string().max(8192).optional(),
+});
+
 export function createBackendApp(config: AppConfig) {
   const app = express();
+  const requestTimestampsByIp = new Map<string, number[]>();
 
   const allowedOrigins = [/^chrome-extension:\/\//, /^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/];
 
@@ -19,6 +26,25 @@ export function createBackendApp(config: AppConfig) {
   );
   app.use(express.json({ limit: "256kb" }));
   app.use((req, res, next) => {
+    if (req.method !== "POST") {
+      next();
+      return;
+    }
+
+    const now = Date.now();
+    const windowStart = now - 60_000;
+    const key = req.ip || req.socket.remoteAddress || "unknown";
+    const recent = (requestTimestampsByIp.get(key) || []).filter((timestamp) => timestamp > windowStart);
+    if (recent.length >= 20) {
+      res.status(429).json({ error: "Too many requests. Please wait a moment and try again." });
+      return;
+    }
+
+    recent.push(now);
+    requestTimestampsByIp.set(key, recent);
+    next();
+  });
+  app.use((req, res, next) => {
     const origin = req.header("origin");
     if (!origin || allowedOrigins.some((pattern) => pattern.test(origin))) {
       next();
@@ -26,6 +52,20 @@ export function createBackendApp(config: AppConfig) {
     }
 
     res.status(403).json({ error: "Forbidden origin." });
+  });
+  app.use((req, res, next) => {
+    if (req.method !== "POST" || !config.sharedSecret) {
+      next();
+      return;
+    }
+
+    const suppliedSecret = req.header("x-backend-secret");
+    if (!suppliedSecret || !secureStringEquals(suppliedSecret, config.sharedSecret)) {
+      res.status(401).json({ error: "Unauthorized." });
+      return;
+    }
+
+    next();
   });
 
   app.get("/health", (_req, res) => {
@@ -37,11 +77,21 @@ export function createBackendApp(config: AppConfig) {
   });
 
   app.post("/test-glean-connection", async (req, res) => {
-    const testConfig = {
-      ...config,
-      gleanServerUrl: req.body?.gleanServerUrl || config.gleanServerUrl,
-      gleanApiToken: req.body?.gleanApiToken || config.gleanApiToken,
-    };
+    const parsed = testGleanConnectionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Invalid connection test payload." });
+      return;
+    }
+
+    const testConfig: AppConfig = { ...config };
+    const gleanServerUrl = parsed.data.gleanServerUrl || config.gleanServerUrl;
+    const gleanApiToken = parsed.data.gleanApiToken || config.gleanApiToken;
+    if (gleanServerUrl) {
+      testConfig.gleanServerUrl = gleanServerUrl;
+    }
+    if (gleanApiToken) {
+      testConfig.gleanApiToken = gleanApiToken;
+    }
 
     try {
       await testGleanConnection(testConfig);
@@ -55,15 +105,6 @@ export function createBackendApp(config: AppConfig) {
   app.post("/draft-email-reply", async (req, res) => {
     const startedAt = Date.now();
     const requestId = req.body?.clientRequestId || crypto.randomUUID();
-
-    if (config.sharedSecret) {
-      const suppliedSecret = req.header("x-backend-secret");
-      if (!suppliedSecret || !secureStringEquals(suppliedSecret, config.sharedSecret)) {
-        const body: DraftErrorPayload = { error: "Unauthorized.", requestId };
-        res.status(401).json(body);
-        return;
-      }
-    }
 
     const parsed = draftRequestSchema.safeParse(req.body);
     if (!parsed.success) {

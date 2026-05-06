@@ -1,9 +1,10 @@
 import { app, BrowserWindow, clipboard, ipcMain, safeStorage, shell } from "electron";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { Server } from "node:http";
 import { createBackendApp, testGleanConnection, type AppConfig } from "@gmail-glean-reply-drafter/backend";
@@ -66,14 +67,15 @@ ipcMain.handle("helper:get-status", async (event): Promise<PublicStatus> => {
 
 ipcMain.handle("helper:save-config", async (_event, input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean }) => {
   assertTrustedSender(_event.senderFrame?.url);
+  const validated = validateSaveConfigInput(input);
   currentConfig = {
     ...currentConfig,
-    gleanServerUrl: input.gleanServerUrl.trim() || DEFAULT_CONFIG.gleanServerUrl,
-    launchAtLogin: input.launchAtLogin,
+    gleanServerUrl: validated.gleanServerUrl,
+    launchAtLogin: validated.launchAtLogin,
   };
 
-  if (input.token?.trim()) {
-    currentConfig.encryptedToken = encryptToken(input.token.trim());
+  if (validated.token) {
+    currentConfig.encryptedToken = encryptToken(validated.token);
   }
 
   await saveHelperConfig(currentConfig);
@@ -84,8 +86,9 @@ ipcMain.handle("helper:save-config", async (_event, input: { gleanServerUrl: str
 
 ipcMain.handle("helper:test-glean", async (_event, input: { gleanServerUrl: string; token?: string }) => {
   assertTrustedSender(_event.senderFrame?.url);
-  const token = input.token?.trim() || decryptToken(currentConfig.encryptedToken);
-  await testGleanConnection(toBackendConfig({ ...currentConfig, gleanServerUrl: input.gleanServerUrl }, token));
+  const validated = validateTestGleanInput(input);
+  const token = validated.token || decryptToken(currentConfig.encryptedToken);
+  await testGleanConnection(toBackendConfig({ ...currentConfig, gleanServerUrl: validated.gleanServerUrl }, token));
   return { ok: true };
 });
 
@@ -157,12 +160,12 @@ function createWindow() {
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (url !== mainWindow?.webContents.getURL()) {
+    if (url !== getRendererUrl()) {
       event.preventDefault();
     }
   });
 
-  void mainWindow.loadFile(join(app.getAppPath(), "dist", "index.html"));
+  void mainWindow.loadFile(getRendererPath());
 }
 
 async function startLocalServer() {
@@ -316,7 +319,9 @@ async function ensureLocalSecret(config: HelperConfig) {
 }
 
 async function saveHelperConfig(config: HelperConfig) {
-  await writeFile(await getConfigPath(), JSON.stringify(config, null, 2));
+  const path = await getConfigPath();
+  await writeFile(path, JSON.stringify(config, null, 2), { mode: 0o600 });
+  await chmod(path, 0o600);
 }
 
 function encryptToken(token: string) {
@@ -351,7 +356,71 @@ function getLocalSecret(config: HelperConfig) {
 }
 
 function assertTrustedSender(url: string | undefined) {
-  if (!url?.startsWith("file://")) {
+  if (url !== getRendererUrl()) {
     throw new Error("Blocked untrusted helper request.");
   }
+}
+
+function getRendererPath() {
+  return join(app.getAppPath(), "dist", "index.html");
+}
+
+function getRendererUrl() {
+  return pathToFileURL(getRendererPath()).href;
+}
+
+function validateSaveConfigInput(input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean }) {
+  if (typeof input !== "object" || input === null) {
+    throw new Error("Invalid settings payload.");
+  }
+
+  return {
+    gleanServerUrl: normalizeGleanServerUrl(input.gleanServerUrl),
+    token: normalizeOptionalToken(input.token),
+    launchAtLogin: input.launchAtLogin === true,
+  };
+}
+
+function validateTestGleanInput(input: { gleanServerUrl: string; token?: string }) {
+  if (typeof input !== "object" || input === null) {
+    throw new Error("Invalid connection test payload.");
+  }
+
+  return {
+    gleanServerUrl: normalizeGleanServerUrl(input.gleanServerUrl),
+    token: normalizeOptionalToken(input.token),
+  };
+}
+
+function normalizeGleanServerUrl(value: unknown) {
+  const raw = typeof value === "string" && value.trim() ? value.trim() : DEFAULT_CONFIG.gleanServerUrl;
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error("Enter a valid Glean server URL.");
+  }
+
+  if (parsed.protocol !== "https:") {
+    throw new Error("Glean server URL must start with https://.");
+  }
+
+  parsed.hash = "";
+  parsed.search = "";
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function normalizeOptionalToken(value: unknown) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    throw new Error("Token must be text.");
+  }
+
+  const token = value.trim();
+  if (!token) return undefined;
+  if (token.length > 8192) {
+    throw new Error("Token is too long.");
+  }
+
+  return token;
 }
