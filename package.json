@@ -1,5 +1,5 @@
 {
-  "name": "gmail-glean-reply-drafter",
+  "name": "glean-email-responder",
   "version": "0.1.0",
   "private": true,
   "description": "DOM-first Chrome extension and backend for drafting Gmail replies with Glean.",

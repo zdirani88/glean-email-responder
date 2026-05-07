@@ -2,7 +2,7 @@
   "name": "@gmail-glean-reply-drafter/helper-app",
   "version": "0.1.2",
   "private": true,
-  "description": "Desktop helper app that runs the local Gmail Glean Reply Drafter backend.",
+  "description": "Desktop helper app that runs the local Glean Email Responder backend.",
   "type": "module",
   "main": "dist/main.cjs",
   "scripts": {

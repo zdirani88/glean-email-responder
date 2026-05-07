@@ -1,4 +1,4 @@
-# Gmail Glean Reply Drafter
+# Glean Email Responder
 
 DOM-first Chrome extension and backend for drafting Gmail replies with Glean.
 
