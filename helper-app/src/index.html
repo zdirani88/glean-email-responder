@@ -76,7 +76,8 @@
         gap: 7px;
       }
       input[type="text"],
-      input[type="password"] {
+      input[type="password"],
+      select {
         border: 1px solid #dfe3ea;
         border-radius: 10px;
         box-sizing: border-box;
@@ -85,6 +86,7 @@
         padding: 0 12px;
         width: 100%;
       }
+      select:focus,
       input:focus {
         border-color: #8ab4f8;
         box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
@@ -197,6 +199,61 @@
           <input id="launchAtLogin" type="checkbox" />
           Start Gmail Glean Helper when I log in
         </label>
+      </section>
+
+      <section class="form">
+        <h2>Reply settings</h2>
+        <div class="split">
+          <label>
+            Response mode
+            <select id="replyMode">
+              <option value="auto">Auto</option>
+              <option value="fast">Fast</option>
+              <option value="thinking">Thinking</option>
+            </select>
+            <span class="hint">Auto uses Fast for short emails and Thinking for longer or threaded conversations.</span>
+          </label>
+          <label>
+            Tone
+            <select id="defaultTone">
+              <option value="concise">Concise</option>
+              <option value="warm">Warm</option>
+              <option value="formal">Formal</option>
+              <option value="direct">Direct</option>
+            </select>
+          </label>
+          <label>
+            Length
+            <select id="defaultLength">
+              <option value="short">Short</option>
+              <option value="medium">Medium</option>
+              <option value="detailed">Detailed</option>
+            </select>
+          </label>
+          <label>
+            Draft behavior
+            <select id="overwriteBehavior">
+              <option value="replace">Replace composer text</option>
+              <option value="append">Append below composer text</option>
+            </select>
+          </label>
+          <label>
+            Context
+            <select id="contextDepth">
+              <option value="visibleThread">Visible thread</option>
+              <option value="latest">Latest message only</option>
+            </select>
+          </label>
+          <label>
+            Timeout
+            <select id="gleanTimeoutMs">
+              <option value="15000">15 seconds</option>
+              <option value="30000">30 seconds</option>
+              <option value="45000">45 seconds</option>
+              <option value="90000">90 seconds</option>
+            </select>
+          </label>
+        </div>
         <div class="row">
           <button id="save" type="button">Save and start</button>
           <button id="test" type="button" class="secondary">Test Glean</button>
@@ -222,12 +279,13 @@
 
         <section>
           <h2>Chrome extension</h2>
+          <p class="message neutral" style="margin-bottom: 12px">After installing or reloading the extension, click <strong>Pair extension</strong>. This prevents Unauthorized errors.</p>
           <ol>
             <li>Click <strong>Open extension folder</strong>. This copies the extension to your Desktop and opens Chrome extensions.</li>
             <li>Enable Developer Mode.</li>
             <li>Click Load unpacked.</li>
             <li>Choose Desktop, then select <code>Gmail Glean Reply Extension</code>.</li>
-            <li>Click <strong>Pair extension</strong> to automatically save the local backend URL and secret.</li>
+            <li>Click <strong>Pair extension</strong> to automatically save the local backend URL and secret. Do this any time you reinstall the app, rotate the secret, or see an Unauthorized error.</li>
             <li>Use <code>Cmd+Shift+Y</code> in a Gmail reply.</li>
           </ol>
           <p class="hint" style="margin-top: 10px">Extension install folder: <code id="extensionPath">Checking...</code></p>

@@ -1,7 +1,23 @@
+type ReplyMode = "auto" | "fast" | "thinking";
+type ReplyTone = "concise" | "warm" | "formal" | "direct";
+type ReplyLength = "short" | "medium" | "detailed";
+type OverwriteBehavior = "replace" | "append";
+type ContextDepth = "latest" | "visibleThread";
+
+interface ReplySettings {
+  replyMode: ReplyMode;
+  defaultTone: ReplyTone;
+  defaultLength: ReplyLength;
+  overwriteBehavior: OverwriteBehavior;
+  contextDepth: ContextDepth;
+}
+
 interface HelperStatus {
   running: boolean;
   port: number;
   gleanServerUrl: string;
+  gleanTimeoutMs: number;
+  replySettings: ReplySettings;
   hasToken: boolean;
   hasLocalSecret: boolean;
   launchAtLogin: boolean;
@@ -12,7 +28,7 @@ interface HelperStatus {
 
 interface HelperApi {
   getStatus(): Promise<HelperStatus>;
-  saveConfig(input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean }): Promise<HelperStatus>;
+  saveConfig(input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean; gleanTimeoutMs: number; replySettings: ReplySettings }): Promise<HelperStatus>;
   testGlean(input: { gleanServerUrl: string; token?: string }): Promise<{ ok: true }>;
   restartServer(): Promise<HelperStatus>;
   openUrl(url: string): Promise<void>;
@@ -32,6 +48,12 @@ declare global {
 const serverUrl = document.querySelector<HTMLInputElement>("#serverUrl");
 const token = document.querySelector<HTMLInputElement>("#token");
 const launchAtLogin = document.querySelector<HTMLInputElement>("#launchAtLogin");
+const replyMode = document.querySelector<HTMLSelectElement>("#replyMode");
+const defaultTone = document.querySelector<HTMLSelectElement>("#defaultTone");
+const defaultLength = document.querySelector<HTMLSelectElement>("#defaultLength");
+const overwriteBehavior = document.querySelector<HTMLSelectElement>("#overwriteBehavior");
+const contextDepth = document.querySelector<HTMLSelectElement>("#contextDepth");
+const gleanTimeoutMs = document.querySelector<HTMLSelectElement>("#gleanTimeoutMs");
 const statusDot = document.querySelector<HTMLElement>("#statusDot");
 const statusText = document.querySelector<HTMLElement>("#statusText");
 const tokenState = document.querySelector<HTMLElement>("#tokenState");
@@ -53,9 +75,11 @@ void refreshStatus();
 
 saveButton?.addEventListener("click", async () => {
   await runAction("Settings saved. Local server restarted.", async () => {
-    const input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean } = {
+    const input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean; gleanTimeoutMs: number; replySettings: ReplySettings } = {
       gleanServerUrl: serverUrl?.value ?? "",
       launchAtLogin: Boolean(launchAtLogin?.checked),
+      gleanTimeoutMs: Number(gleanTimeoutMs?.value || 45000),
+      replySettings: readReplySettings(),
     };
     if (token?.value) input.token = token.value;
 
@@ -126,6 +150,12 @@ async function refreshStatus() {
 function renderStatus(status: HelperStatus) {
   if (serverUrl) serverUrl.value = status.gleanServerUrl;
   if (launchAtLogin) launchAtLogin.checked = status.launchAtLogin;
+  if (replyMode) replyMode.value = status.replySettings.replyMode;
+  if (defaultTone) defaultTone.value = status.replySettings.defaultTone;
+  if (defaultLength) defaultLength.value = status.replySettings.defaultLength;
+  if (overwriteBehavior) overwriteBehavior.value = status.replySettings.overwriteBehavior;
+  if (contextDepth) contextDepth.value = status.replySettings.contextDepth;
+  if (gleanTimeoutMs) gleanTimeoutMs.value = String(status.gleanTimeoutMs);
   if (statusDot) statusDot.className = status.running ? "dot on" : "dot off";
   if (statusText) {
     statusText.textContent = status.running
@@ -151,6 +181,20 @@ async function runAction(successText: string, action: () => Promise<void>) {
   } finally {
     setBusy(false);
   }
+}
+
+function readReplySettings(): ReplySettings {
+  return {
+    replyMode: readSelect(replyMode, "auto") as ReplyMode,
+    defaultTone: readSelect(defaultTone, "concise") as ReplyTone,
+    defaultLength: readSelect(defaultLength, "short") as ReplyLength,
+    overwriteBehavior: readSelect(overwriteBehavior, "replace") as OverwriteBehavior,
+    contextDepth: readSelect(contextDepth, "visibleThread") as ContextDepth,
+  };
+}
+
+function readSelect(element: HTMLSelectElement | null, fallback: string) {
+  return element?.value || fallback;
 }
 
 function setBusy(busy: boolean) {

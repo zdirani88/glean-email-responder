@@ -58,7 +58,7 @@ export function extractVisibleThreadForActiveComposer(options: ExtractionOptions
   return { ok: true, payload, composer };
 }
 
-export function insertDraft(composer: ComposerTarget, draft: string) {
+export function insertDraft(composer: ComposerTarget, draft: string, mode: "replace" | "append" = "replace") {
   composer.editor.focus();
   const paragraphs = draft
     .replace(/\r\n/g, "\n")
@@ -75,7 +75,13 @@ export function insertDraft(composer: ComposerTarget, draft: string) {
     fragment.append(document.createTextNode(paragraph));
   });
 
-  composer.editor.replaceChildren(fragment);
+  if (mode === "append" && getComposerText(composer.editor).trim()) {
+    composer.editor.append(document.createElement("br"));
+    composer.editor.append(document.createElement("br"));
+    composer.editor.append(fragment);
+  } else {
+    composer.editor.replaceChildren(fragment);
+  }
   composer.editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: draft }));
   composer.editor.dispatchEvent(new Event("change", { bubbles: true }));
 }

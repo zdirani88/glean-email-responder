@@ -44,6 +44,12 @@ async function requestDraft(payload: BackgroundMessage["payload"]): Promise<Back
 
     const data = await res.json();
     if (!res.ok) {
+      if (res.status === 401) {
+        return {
+          ok: false,
+          error: "Extension is not paired with Gmail Glean Helper. Open the helper app, click Pair extension, then try again.",
+        };
+      }
       return { ok: false, error: data.error ?? `Backend returned ${res.status}` };
     }
 
@@ -51,7 +57,7 @@ async function requestDraft(payload: BackgroundMessage["payload"]): Promise<Back
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Could not reach backend.",
+      error: "Could not reach Gmail Glean Helper. Open the helper app, click Save and start or Restart server, then try again.",
     };
   }
 }

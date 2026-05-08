@@ -61,7 +61,7 @@ export function createBackendApp(config: AppConfig) {
 
     const suppliedSecret = req.header("x-backend-secret");
     if (!suppliedSecret || !secureStringEquals(suppliedSecret, config.sharedSecret)) {
-      res.status(401).json({ error: "Unauthorized." });
+      res.status(401).json({ error: "Extension is not paired with Gmail Glean Helper. Open the helper app, click Pair extension, then try again." });
       return;
     }
 
@@ -125,11 +125,19 @@ export function createBackendApp(config: AppConfig) {
     });
 
     try {
-      const prompt = buildReplyPrompt(payload);
-      const draft = await draftWithGlean(prompt, config);
+      const prompt = buildReplyPrompt(payload, config.replySettings);
+      const result = await draftWithGlean(prompt, config, {
+        messageCount: payload.messages.length,
+        totalBodyChars: payload.messages.reduce((total, message) => total + message.bodyText.length, 0),
+        userInstructionChars: payload.userInstruction?.length ?? 0,
+      });
       const response: DraftResponsePayload = {
-        draft,
-        summary: `Drafted from ${payload.messages.length} visible message${payload.messages.length === 1 ? "" : "s"}.`,
+        draft: result.draft,
+        variants: result.variants,
+        selectedVariantIndex: 0,
+        effectiveGleanMode: result.effectiveMode,
+        overwriteBehavior: config.replySettings.overwriteBehavior,
+        summary: `Drafted from ${payload.messages.length} visible message${payload.messages.length === 1 ? "" : "s"} using ${result.effectiveMode} mode.`,
         requestId,
         warnings: [],
       };

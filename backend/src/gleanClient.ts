@@ -1,9 +1,12 @@
+import type { DraftVariant, EffectiveGleanMode } from "@gmail-glean-reply-drafter/shared";
 import type { AppConfig } from "./config.js";
 
 interface GleanChatMessage {
   author?: string;
-  fragments?: Array<{ text?: string }>;
+  fragments?: Array<{ text?: string; messageType?: string; type?: string }>;
   content?: string;
+  messageType?: string;
+  type?: string;
 }
 
 interface GleanChatResponse {
@@ -11,15 +14,23 @@ interface GleanChatResponse {
   followUpResults?: GleanChatMessage[];
 }
 
-export async function draftWithGlean(prompt: string, config: AppConfig): Promise<string> {
+export interface GleanDraftResult {
+  draft: string;
+  variants: DraftVariant[];
+  effectiveMode: EffectiveGleanMode;
+}
+
+export async function draftWithGlean(prompt: string, config: AppConfig, requestStats: { messageCount: number; totalBodyChars: number; userInstructionChars: number }): Promise<GleanDraftResult> {
+  const effectiveMode = resolveEffectiveMode(config, requestStats);
   if (config.gleanStubMode) {
-    return [
+    const draft = [
       "Hi,",
       "",
       "Thanks for the context. This is a stub draft from the local backend while Glean integration is disabled.",
       "",
       "Best,",
     ].join("\n");
+    return { draft, variants: [{ draft, label: "Draft 1" }], effectiveMode };
   }
 
   if (!config.gleanServerUrl || !config.gleanApiToken) {
@@ -27,7 +38,70 @@ export async function draftWithGlean(prompt: string, config: AppConfig): Promise
   }
 
   const chatUrl = `${config.gleanServerUrl.replace(/\/$/, "")}/rest/api/v1/chat`;
-  const res = await fetchWithTimeout(
+  const data = await sendChatRequest(chatUrl, prompt, config, effectiveMode);
+
+  const responseMessages = data.messages ?? data.followUpResults ?? [];
+  const assistantDrafts = responseMessages
+    .filter((message) => message.author === "GLEAN_AI" || message.author === "ASSISTANT")
+    .filter(isContentMessage)
+    .map(getMessageText)
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .filter((text) => !isProgressMessage(text));
+
+  const fallbackDraft = responseMessages
+    .filter(isContentMessage)
+    .map(getMessageText)
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .filter((text) => !isProgressMessage(text))
+    .at(-1) ?? "";
+  const finalDraft = assistantDrafts.at(-1) ?? fallbackDraft;
+  const variants = toDraftVariants(finalDraft ? [finalDraft] : []);
+  const draft = variants.at(0)?.draft ?? "";
+
+  if (!draft.trim()) {
+    throw new Error("Glean returned an empty draft.");
+  }
+
+  return { draft, variants, effectiveMode };
+}
+
+async function sendChatRequest(chatUrl: string, prompt: string, config: AppConfig, effectiveMode: EffectiveGleanMode) {
+  const baseBody = {
+    messages: [{ author: "USER", fragments: [{ text: prompt }] }],
+    stream: false,
+  };
+  const withMode = {
+    agentConfig: { mode: effectiveMode === "fast" ? "QUICK" : "DEFAULT" },
+    ...baseBody,
+  };
+
+  const first = await postChat(chatUrl, config, withMode);
+  if (first.ok) return (await first.json()) as GleanChatResponse;
+
+  const firstBody = await readErrorBody(first);
+  if (first.status !== 400) {
+    throw new Error(`Glean chat ${first.status}: ${firstBody}`);
+  }
+
+  console.warn("glean_chat_mode_rejected_retrying_without_mode", {
+    status: first.status,
+    effectiveMode,
+    error: firstBody.slice(0, 160),
+  });
+
+  const retry = await postChat(chatUrl, config, baseBody);
+  if (!retry.ok) {
+    const retryBody = await readErrorBody(retry);
+    throw new Error(`Glean chat ${retry.status}: ${retryBody}`);
+  }
+
+  return (await retry.json()) as GleanChatResponse;
+}
+
+function postChat(chatUrl: string, config: AppConfig, body: unknown) {
+  return fetchWithTimeout(
     chatUrl,
     {
       method: "POST",
@@ -35,35 +109,10 @@ export async function draftWithGlean(prompt: string, config: AppConfig): Promise
         Authorization: `Bearer ${config.gleanApiToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        messages: [{ author: "USER", fragments: [{ text: prompt }] }],
-        stream: false,
-      }),
+      body: JSON.stringify(body),
     },
     config.gleanTimeoutMs
   );
-
-  if (!res.ok) {
-    const body = await readErrorBody(res);
-    throw new Error(`Glean chat ${res.status}: ${body}`);
-  }
-
-  const data = (await res.json()) as GleanChatResponse;
-  const responseMessages = data.messages ?? data.followUpResults ?? [];
-  const assistantDrafts = responseMessages
-    .filter((message) => message.author === "GLEAN_AI" || message.author === "ASSISTANT")
-    .map(getMessageText)
-    .map((text) => text.trim())
-    .filter(Boolean)
-    .filter((text) => !isProgressMessage(text));
-
-  const draft = assistantDrafts.at(-1) ?? getMessageText(responseMessages.at(-1)).trim();
-
-  if (!draft.trim()) {
-    throw new Error("Glean returned an empty draft.");
-  }
-
-  return draft.trim();
 }
 
 export async function testGleanConnection(config: AppConfig): Promise<void> {
@@ -96,7 +145,32 @@ export async function testGleanConnection(config: AppConfig): Promise<void> {
 }
 
 function getMessageText(message: GleanChatMessage | undefined) {
-  return message?.fragments?.map((fragment) => fragment.text ?? "").join("") ?? message?.content ?? "";
+  if (!message) return "";
+  const fragments = message.fragments ?? [];
+  const contentFragments = fragments.filter(isContentFragment);
+  if (contentFragments.length) {
+    return contentFragments.map((fragment) => fragment.text ?? "").join("");
+  }
+  if (fragments.length && fragments.some(hasTypedFragment)) return "";
+  return message.content ?? fragments.map((fragment) => fragment.text ?? "").join("");
+}
+
+function isContentMessage(message: GleanChatMessage) {
+  const messageType = normalizeMessageType(message.messageType ?? message.type);
+  return !messageType || messageType === "CONTENT";
+}
+
+function isContentFragment(fragment: { messageType?: string; type?: string }) {
+  const messageType = normalizeMessageType(fragment.messageType ?? fragment.type);
+  return !messageType || messageType === "CONTENT";
+}
+
+function hasTypedFragment(fragment: { messageType?: string; type?: string }) {
+  return Boolean(fragment.messageType || fragment.type);
+}
+
+function normalizeMessageType(value: string | undefined) {
+  return value?.trim().toUpperCase();
 }
 
 function isProgressMessage(text: string) {
@@ -129,4 +203,30 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
 async function readErrorBody(res: Response) {
   const text = await res.text();
   return text.slice(0, 500);
+}
+
+function resolveEffectiveMode(config: AppConfig, stats: { messageCount: number; totalBodyChars: number; userInstructionChars: number }): EffectiveGleanMode {
+  if (config.replySettings.replyMode === "fast") return "fast";
+  if (config.replySettings.replyMode === "thinking") return "thinking";
+
+  if (stats.messageCount > 1 || stats.totalBodyChars > 1200 || stats.userInstructionChars > 220) {
+    return "thinking";
+  }
+
+  return "fast";
+}
+
+function toDraftVariants(values: string[]): DraftVariant[] {
+  const seen = new Set<string>();
+  return values
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .filter((value) => {
+      const key = value.replace(/\s+/g, " ").toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 5)
+    .map((draft, index) => ({ draft, label: "Draft " + (index + 1) }));
 }

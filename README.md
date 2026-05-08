@@ -113,6 +113,19 @@ In the helper app, ask the user to:
 
 If the user does not see API tokens, they likely need a Glean admin or developer to create the token.
 
+## Reply Settings
+
+The helper app includes recommended defaults for drafting behavior:
+
+- Response mode: `auto`, `fast`, or `thinking`. Auto uses Fast for short single-message emails and Thinking for longer or threaded conversations.
+- Tone: `concise`, `warm`, `formal`, or `direct`.
+- Length: `short`, `medium`, or `detailed`.
+- Draft behavior: replace the composer text or append below it.
+- Context: latest message only or the visible thread.
+- Timeout: 15, 30, 45, or 90 seconds.
+
+For the Glean Chat API, Fast maps to `agentConfig.mode = QUICK`; Thinking maps to `agentConfig.mode = DEFAULT`.
+
 ## Current MVP Behavior
 
 - Works only on `mail.google.com`.

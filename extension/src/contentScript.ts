@@ -61,8 +61,11 @@ async function draftReply() {
   }
 
   const targetComposer = lastComposer ?? extraction.composer;
-  insertDraft(targetComposer, response.data.draft);
+  const variants = response.data.variants?.length ? response.data.variants : [{ draft: response.data.draft, label: "Draft 1" }];
+  const selectedIndex = response.data.selectedVariantIndex ?? 0;
+  insertDraft(targetComposer, variants[selectedIndex]?.draft ?? response.data.draft, response.data.overwriteBehavior);
   ui.setSuccess(response.data.summary);
+  ui.setVariants(variants, targetComposer, selectedIndex);
 }
 
 function renderUi(composer: ReturnType<typeof findActiveComposer>) {
@@ -184,6 +187,28 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
+        .ggd-inline-ui .variants {
+          align-items: center;
+          display: none;
+          gap: 8px;
+          grid-column: 2 / -1;
+        }
+        .ggd-inline-ui.has-variants .variants {
+          display: flex;
+        }
+        .ggd-inline-ui .variant-count {
+          color: #5f6368;
+          font-size: 12px;
+          min-width: max-content;
+        }
+        .ggd-inline-ui .variant-button {
+          background: #f5f7fb;
+          box-shadow: inset 0 0 0 1px #e3e7ee;
+          color: #3c4043;
+          height: 30px;
+          min-width: 34px;
+          padding: 0 10px;
+        }
         .ggd-inline-ui .message strong {
           color: #202124;
         }
@@ -257,7 +282,8 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
             grid-column: 2 / 3;
             grid-row: 1 / 2;
           }
-          .ggd-inline-ui .message {
+          .ggd-inline-ui .message,
+          .ggd-inline-ui .variants {
             grid-column: 1 / -1;
           }
         }
@@ -272,6 +298,11 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
         </svg>
       </button>
       <span class="message">Ready when you are.</span>
+      <div class="variants" aria-live="polite">
+        <button type="button" class="variant-button previous" title="Previous draft" aria-label="Previous draft">Prev</button>
+        <span class="variant-count">Draft 1 of 1</span>
+        <button type="button" class="variant-button next" title="Next draft" aria-label="Next draft">Next</button>
+      </div>
     `;
     root.prepend(el);
     el.querySelector<HTMLButtonElement>(".draft")?.addEventListener("click", () => void draftReply());
@@ -281,11 +312,28 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   }
 
   const message = el.querySelector<HTMLElement>(".message");
+  const variantCount = el.querySelector<HTMLElement>(".variant-count");
+  const previousVariant = el.querySelector<HTMLButtonElement>(".previous");
+  const nextVariant = el.querySelector<HTMLButtonElement>(".next");
+  let variants: Array<{ draft: string; label: string }> = [];
+  let selectedVariantIndex = 0;
+  let variantComposer: ReturnType<typeof findActiveComposer> | undefined;
+  const applyVariant = (nextIndex: number) => {
+    if (!variantComposer || variants.length < 1) return;
+    selectedVariantIndex = (nextIndex + variants.length) % variants.length;
+    const selectedVariant = variants[selectedVariantIndex];
+    if (!selectedVariant) return;
+    insertDraft(variantComposer, selectedVariant.draft, "replace");
+    if (variantCount) variantCount.textContent = `${selectedVariant.label} of ${variants.length}`;
+  };
+  previousVariant?.addEventListener("click", () => applyVariant(selectedVariantIndex - 1));
+  nextVariant?.addEventListener("click", () => applyVariant(selectedVariantIndex + 1));
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
   return {
     setLoading(text: string) {
       el.classList.remove("error");
       el.classList.add("loading");
+      el.classList.remove("has-variants");
       buttons.forEach((button) => {
         button.disabled = true;
       });
@@ -307,6 +355,15 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
         button.disabled = false;
       });
       if (message) message.textContent = text;
+    },
+    setVariants(nextVariants: Array<{ draft: string; label: string }>, composerTarget: ReturnType<typeof findActiveComposer>, selectedIndex: number) {
+      variants = nextVariants;
+      selectedVariantIndex = selectedIndex;
+      variantComposer = composerTarget;
+      el.classList.toggle("has-variants", variants.length > 1);
+      if (variantCount && variants.length > 1) {
+        variantCount.textContent = `${variants[selectedVariantIndex]?.label ?? "Draft 1"} of ${variants.length}`;
+      }
     },
   };
 }

@@ -7,11 +7,13 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { Server } from "node:http";
-import { createBackendApp, testGleanConnection, type AppConfig } from "@gmail-glean-reply-drafter/backend";
+import { createBackendApp, DEFAULT_REPLY_SETTINGS, testGleanConnection, type AppConfig, type ReplySettings } from "@gmail-glean-reply-drafter/backend";
 
 interface HelperConfig {
   port: number;
   gleanServerUrl: string;
+  gleanTimeoutMs: number;
+  replySettings: ReplySettings;
   encryptedToken?: string;
   encryptedLocalSecret?: string;
   launchAtLogin: boolean;
@@ -21,6 +23,8 @@ interface PublicStatus {
   running: boolean;
   port: number;
   gleanServerUrl: string;
+  gleanTimeoutMs: number;
+  replySettings: ReplySettings;
   hasToken: boolean;
   hasLocalSecret: boolean;
   launchAtLogin: boolean;
@@ -32,6 +36,8 @@ interface PublicStatus {
 const DEFAULT_CONFIG: HelperConfig = {
   port: 8787,
   gleanServerUrl: "https://scio-prod-be.glean.com",
+  gleanTimeoutMs: 45000,
+  replySettings: { ...DEFAULT_REPLY_SETTINGS },
   launchAtLogin: false,
 };
 const BACKEND_HOST = "127.0.0.1";
@@ -65,12 +71,14 @@ ipcMain.handle("helper:get-status", async (event): Promise<PublicStatus> => {
   return getPublicStatus();
 });
 
-ipcMain.handle("helper:save-config", async (_event, input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean }) => {
+ipcMain.handle("helper:save-config", async (_event, input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean; gleanTimeoutMs?: number; replySettings?: Partial<ReplySettings> }) => {
   assertTrustedSender(_event.senderFrame?.url);
   const validated = validateSaveConfigInput(input);
   currentConfig = {
     ...currentConfig,
     gleanServerUrl: validated.gleanServerUrl,
+    gleanTimeoutMs: validated.gleanTimeoutMs,
+    replySettings: validated.replySettings,
     launchAtLogin: validated.launchAtLogin,
   };
 
@@ -215,8 +223,9 @@ function toBackendConfig(config: HelperConfig, token?: string): AppConfig {
     port: config.port,
     host: BACKEND_HOST,
     gleanServerUrl: config.gleanServerUrl,
-    gleanTimeoutMs: 45000,
+    gleanTimeoutMs: config.gleanTimeoutMs,
     gleanStubMode: false,
+    replySettings: config.replySettings,
   };
 
   if (token) backendConfig.gleanApiToken = token;
@@ -229,6 +238,8 @@ function getPublicStatus(): PublicStatus {
     running: Boolean(server?.listening),
     port: currentConfig.port,
     gleanServerUrl: currentConfig.gleanServerUrl,
+    gleanTimeoutMs: currentConfig.gleanTimeoutMs,
+    replySettings: currentConfig.replySettings,
     hasToken: Boolean(currentConfig.encryptedToken),
     hasLocalSecret: Boolean(currentConfig.encryptedLocalSecret),
     launchAtLogin: currentConfig.launchAtLogin,
@@ -294,7 +305,13 @@ async function loadHelperConfig(): Promise<HelperConfig> {
 
   try {
     const raw = await readFile(path, "utf8");
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    const parsed = JSON.parse(raw) as Partial<HelperConfig>;
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      gleanTimeoutMs: normalizeTimeout(parsed.gleanTimeoutMs),
+      replySettings: normalizeReplySettings(parsed.replySettings),
+    };
   } catch {
     return DEFAULT_CONFIG;
   }
@@ -369,7 +386,7 @@ function getRendererUrl() {
   return pathToFileURL(getRendererPath()).href;
 }
 
-function validateSaveConfigInput(input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean }) {
+function validateSaveConfigInput(input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean; gleanTimeoutMs?: number; replySettings?: Partial<ReplySettings> }) {
   if (typeof input !== "object" || input === null) {
     throw new Error("Invalid settings payload.");
   }
@@ -377,6 +394,8 @@ function validateSaveConfigInput(input: { gleanServerUrl: string; token?: string
   return {
     gleanServerUrl: normalizeGleanServerUrl(input.gleanServerUrl),
     token: normalizeOptionalToken(input.token),
+    gleanTimeoutMs: normalizeTimeout(input.gleanTimeoutMs),
+    replySettings: normalizeReplySettings(input.replySettings),
     launchAtLogin: input.launchAtLogin === true,
   };
 }
@@ -423,4 +442,24 @@ function normalizeOptionalToken(value: unknown) {
   }
 
   return token;
+}
+
+function normalizeTimeout(value: unknown) {
+  const timeout = typeof value === "number" && Number.isFinite(value) ? value : DEFAULT_CONFIG.gleanTimeoutMs;
+  return Math.min(Math.max(Math.round(timeout), 15000), 90000);
+}
+
+function normalizeReplySettings(value: unknown): ReplySettings {
+  const incoming = typeof value === "object" && value !== null ? value as Partial<ReplySettings> : {};
+  return {
+    replyMode: pickSetting(incoming.replyMode, ["auto", "fast", "thinking"], DEFAULT_REPLY_SETTINGS.replyMode),
+    defaultTone: pickSetting(incoming.defaultTone, ["concise", "warm", "formal", "direct"], DEFAULT_REPLY_SETTINGS.defaultTone),
+    defaultLength: pickSetting(incoming.defaultLength, ["short", "medium", "detailed"], DEFAULT_REPLY_SETTINGS.defaultLength),
+    overwriteBehavior: pickSetting(incoming.overwriteBehavior, ["replace", "append"], DEFAULT_REPLY_SETTINGS.overwriteBehavior),
+    contextDepth: pickSetting(incoming.contextDepth, ["latest", "visibleThread"], DEFAULT_REPLY_SETTINGS.contextDepth),
+  };
+}
+
+function pickSetting<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
 }
