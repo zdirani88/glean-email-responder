@@ -21,6 +21,15 @@ export interface ExtractionOptions {
   userInstruction?: string;
 }
 
+interface OpenEmailResult {
+  ok: true;
+}
+
+interface OpenEmailFailure {
+  ok: false;
+  error: string;
+}
+
 const EDITOR_SELECTORS = [
   "[role='textbox'][contenteditable='true'][aria-label*='Message Body']",
   "[role='textbox'][contenteditable='true'][aria-label*='Body']",
@@ -51,7 +60,9 @@ export function extractVisibleThreadForActiveComposer(options: ExtractionOptions
     clientRequestId: crypto.randomUUID(),
   };
   const currentUser = inferCurrentUser();
+  const timezone = inferClientTimezone();
   if (currentUser) payload.currentUser = currentUser;
+  if (timezone) payload.clientTimezone = timezone;
   if (options.userInstruction?.trim()) payload.userInstruction = options.userInstruction.trim();
   if (composerText && !isProgressComposerText(composerText)) payload.currentDraft = composerText;
 
@@ -106,6 +117,74 @@ export function findActiveComposer(): ComposerTarget | undefined {
 
 export function getComposerRoot(composer: ComposerTarget) {
   return composer.root;
+}
+
+export async function openEmailAndReplyFromList(): Promise<OpenEmailResult | OpenEmailFailure> {
+  const row = findTargetEmailRow();
+  if (!row) {
+    return { ok: false, error: "Open an email thread or select a message in Gmail first." };
+  }
+
+  row.click();
+  const threadOpened = await waitFor(() => extractVisibleMessages().length > 0 && Boolean(extractSubject()), 8000);
+  if (!threadOpened) {
+    return { ok: false, error: "I could not open the selected Gmail message. Open the email and try again." };
+  }
+
+  const existingComposer = findActiveComposer();
+  if (existingComposer) return { ok: true };
+
+  const replyButton = findThreadReplyButton();
+  if (!replyButton) {
+    return { ok: false, error: "I opened the email, but could not find Gmail's reply button. Open a reply box and try again." };
+  }
+
+  replyButton.click();
+  const composerOpened = await waitFor(() => findActiveComposer(), 6000);
+  if (!composerOpened) {
+    return { ok: false, error: "I opened the email, but Gmail did not open a reply box. Click Reply and try again." };
+  }
+
+  return { ok: true };
+}
+
+function findTargetEmailRow() {
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement.closest<HTMLElement>("tr[role='row'], .zA") : undefined;
+  if (active && isVisible(active) && looksLikeEmailRow(active)) return active;
+
+  const selected = Array.from(document.querySelectorAll<HTMLElement>("tr[aria-selected='true'], .zA[aria-selected='true']")).find((row) => isVisible(row) && looksLikeEmailRow(row));
+  if (selected) return selected;
+
+  return Array.from(document.querySelectorAll<HTMLElement>("tr.zA, .zA, tr[role='row']")).find((row) => isVisible(row) && looksLikeEmailRow(row));
+}
+
+function looksLikeEmailRow(row: HTMLElement) {
+  const text = normalizeText(row.innerText || row.textContent || "");
+  if (text.length < 8) return false;
+  if (/^(inbox|starred|snoozed|sent|drafts|labels)$/i.test(text)) return false;
+  const rect = row.getBoundingClientRect();
+  return rect.width > 320 && rect.height >= 20;
+}
+
+function findThreadReplyButton() {
+  const buttons = Array.from(document.querySelectorAll<HTMLElement>("[role='button'][aria-label], [data-tooltip], .ams.bkH, .ams"))
+    .filter(isVisible)
+    .filter((button) => {
+      const label = [button.getAttribute("aria-label"), button.getAttribute("data-tooltip"), button.innerText].filter(Boolean).join(" ");
+      return /(^|\b)reply(\b|$)/i.test(label) && !/reply all/i.test(label);
+    });
+
+  return buttons.at(-1);
+}
+
+async function waitFor<T>(read: () => T | undefined | false, timeoutMs: number) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const value = read();
+    if (value) return value;
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+  }
+  return undefined;
 }
 
 function closestEditor(element: HTMLElement) {
@@ -201,6 +280,14 @@ function extractParticipants(messages: ExtractedMessage[]) {
         .map((value) => value.trim())
     )
   ).slice(0, 20);
+}
+
+function inferClientTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return undefined;
+  }
 }
 
 function inferCurrentUser() {

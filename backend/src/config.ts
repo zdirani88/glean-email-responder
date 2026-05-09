@@ -36,6 +36,7 @@ export function loadConfig(): AppConfig {
     defaultLength: parseSetting(process.env.REPLY_LENGTH, ["short", "medium", "detailed"], config.replySettings.defaultLength),
     overwriteBehavior: parseSetting(process.env.OVERWRITE_BEHAVIOR, ["replace", "append"], config.replySettings.overwriteBehavior),
     contextDepth: parseSetting(process.env.CONTEXT_DEPTH, ["latest", "visibleThread"], config.replySettings.contextDepth),
+    writingPreferences: process.env.WRITING_PREFERENCES?.trim() || config.replySettings.writingPreferences,
   };
 
   return config;

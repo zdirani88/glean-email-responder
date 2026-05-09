@@ -4,6 +4,7 @@ import {
   findActiveComposer,
   getComposerRoot,
   insertDraft,
+  openEmailAndReplyFromList,
 } from "./gmailAdapter";
 
 let lastComposer: ReturnType<typeof findActiveComposer>;
@@ -34,7 +35,14 @@ async function draftReply() {
 
   if (!extraction.ok) {
     if (!composer) {
-      renderToast(extraction.error);
+      renderToast("Opening the selected email and preparing a reply...");
+      const opened = await openEmailAndReplyFromList();
+      if (!opened.ok) {
+        renderToast(opened.error);
+        return;
+      }
+      await wait(300);
+      void draftReply();
       return;
     }
 
@@ -366,6 +374,10 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       }
     },
   };
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function getInstruction(composer: ReturnType<typeof findActiveComposer>) {

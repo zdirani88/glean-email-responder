@@ -75,6 +75,7 @@
         font-weight: 700;
         gap: 7px;
       }
+      textarea,
       input[type="text"],
       input[type="password"],
       select {
@@ -82,15 +83,21 @@
         border-radius: 10px;
         box-sizing: border-box;
         font: inherit;
-        height: 42px;
+        min-height: 42px;
         padding: 0 12px;
         width: 100%;
       }
+      textarea:focus,
       select:focus,
       input:focus {
         border-color: #8ab4f8;
         box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.12);
         outline: none;
+      }
+      textarea {
+        line-height: 1.45;
+        padding: 10px 12px;
+        resize: vertical;
       }
       .row {
         align-items: center;
@@ -254,6 +261,11 @@
             </select>
           </label>
         </div>
+        <label>
+          Writing preferences
+          <textarea id="writingPreferences" rows="4" placeholder="Do not use em dashes. Write concise, warm, direct replies."></textarea>
+          <span class="hint">Saved locally. These instructions are added to every draft prompt.</span>
+        </label>
         <div class="row">
           <button id="save" type="button">Save and start</button>
           <button id="test" type="button" class="secondary">Test Glean</button>

@@ -457,9 +457,16 @@ function normalizeReplySettings(value: unknown): ReplySettings {
     defaultLength: pickSetting(incoming.defaultLength, ["short", "medium", "detailed"], DEFAULT_REPLY_SETTINGS.defaultLength),
     overwriteBehavior: pickSetting(incoming.overwriteBehavior, ["replace", "append"], DEFAULT_REPLY_SETTINGS.overwriteBehavior),
     contextDepth: pickSetting(incoming.contextDepth, ["latest", "visibleThread"], DEFAULT_REPLY_SETTINGS.contextDepth),
+    writingPreferences: normalizeWritingPreferences(incoming.writingPreferences),
   };
 }
 
 function pickSetting<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
+}
+
+function normalizeWritingPreferences(value: unknown) {
+  if (typeof value !== "string") return DEFAULT_REPLY_SETTINGS.writingPreferences;
+  const trimmed = value.trim();
+  return trimmed.slice(0, 2000) || DEFAULT_REPLY_SETTINGS.writingPreferences;
 }

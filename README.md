@@ -4,9 +4,9 @@ DOM-first Chrome extension and backend for drafting Gmail replies with Glean.
 
 The MVP proves this loop:
 
-1. Open a Gmail thread and click Reply.
+1. Open a Gmail thread and click Reply, or select a message in the Gmail inbox.
 2. Press `Cmd+Shift+Y` on macOS or `Ctrl+Shift+Y` on Windows.
-3. The extension extracts visible Gmail thread context from the DOM.
+3. If needed, the extension opens the selected email, starts a reply, and extracts visible Gmail thread context from the DOM.
 4. The extension sends structured context to the local backend.
 5. The backend calls Glean Client API chat.
 6. The returned plain-text draft is inserted into the active Gmail composer.
@@ -117,24 +117,26 @@ If the user does not see API tokens, they likely need a Glean admin or developer
 
 The helper app includes recommended defaults for drafting behavior:
 
-- Response mode: `auto`, `fast`, or `thinking`. Auto uses Fast for short single-message emails and Thinking for longer or threaded conversations.
+- Response mode: `auto`, `fast`, or `thinking`. Auto uses Fast for short single-message emails and Thinking for longer, threaded, or scheduling-related conversations.
 - Tone: `concise`, `warm`, `formal`, or `direct`.
 - Length: `short`, `medium`, or `detailed`.
 - Draft behavior: replace the composer text or append below it.
 - Context: latest message only or the visible thread.
 - Timeout: 15, 30, 45, or 90 seconds.
+- Writing preferences: saved locally and added to every draft prompt.
 
-For the Glean Chat API, Fast maps to `agentConfig.mode = QUICK`; Thinking maps to `agentConfig.mode = DEFAULT`.
+For the Glean Chat API, Fast maps to `agentConfig.mode = QUICK`; Thinking maps to `agentConfig.mode = DEFAULT`. If a Glean instance rejects that mode field, the backend retries without it. Scheduling-related requests are forced to Thinking mode and instruct Glean to use its Google Calendar Find free slots action when available.
 
 ## Current MVP Behavior
 
 - Works only on `mail.google.com`.
 - Extracts visible DOM content only.
+- On the inbox, the shortcut attempts to open the selected or first visible email, click Reply, and draft automatically.
 - Replaces existing composer text when drafting or revising.
 - Returns inline errors without clearing composer content.
 - Inserts plain text into the focused Gmail editor.
 - Never auto-sends.
-- Does not request Gmail API scopes.
+- Does not request Gmail API scopes or calendar tokens. Calendar availability is requested only through Glean actions when Glean supports it.
 
 ## Useful Commands
 

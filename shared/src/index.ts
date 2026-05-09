@@ -24,6 +24,7 @@ export interface ReplySettings {
   defaultLength: ReplyLength;
   overwriteBehavior: OverwriteBehavior;
   contextDepth: ContextDepth;
+  writingPreferences: string;
 }
 
 export const DEFAULT_REPLY_SETTINGS: ReplySettings = {
@@ -32,6 +33,7 @@ export const DEFAULT_REPLY_SETTINGS: ReplySettings = {
   defaultLength: "short",
   overwriteBehavior: "replace",
   contextDepth: "visibleThread",
+  writingPreferences: "Do not use em dashes. Use commas, periods, colons, semicolons, or parentheses instead. Write concise, warm, direct replies. Avoid corporate filler.",
 };
 
 export interface DraftRequestPayload {
@@ -41,6 +43,7 @@ export interface DraftRequestPayload {
   messages: ExtractedMessage[];
   userInstruction?: string;
   currentDraft?: string;
+  clientTimezone?: string;
   activeComposerDetected: boolean;
   pageUrl: string;
   timestamp: string;

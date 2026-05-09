@@ -20,7 +20,7 @@ export interface GleanDraftResult {
   effectiveMode: EffectiveGleanMode;
 }
 
-export async function draftWithGlean(prompt: string, config: AppConfig, requestStats: { messageCount: number; totalBodyChars: number; userInstructionChars: number }): Promise<GleanDraftResult> {
+export async function draftWithGlean(prompt: string, config: AppConfig, requestStats: { messageCount: number; totalBodyChars: number; userInstructionChars: number; schedulingIntent?: boolean }): Promise<GleanDraftResult> {
   const effectiveMode = resolveEffectiveMode(config, requestStats);
   if (config.gleanStubMode) {
     const draft = [
@@ -57,7 +57,8 @@ export async function draftWithGlean(prompt: string, config: AppConfig, requestS
     .filter((text) => !isProgressMessage(text))
     .at(-1) ?? "";
   const finalDraft = assistantDrafts.at(-1) ?? fallbackDraft;
-  const variants = toDraftVariants(finalDraft ? [finalDraft] : []);
+  const cleanedDraft = cleanDraft(finalDraft);
+  const variants = toDraftVariants(cleanedDraft ? [cleanedDraft] : []);
   const draft = variants.at(0)?.draft ?? "";
 
   if (!draft.trim()) {
@@ -175,6 +176,8 @@ function normalizeMessageType(value: string | undefined) {
 
 function isProgressMessage(text: string) {
   const normalized = text.replace(/[*_`]/g, "").trim().toLowerCase();
+  if (normalized.startsWith("checking ") || normalized.startsWith("drafting ") || normalized.startsWith("thinking") || normalized.startsWith("working ")) return true;
+  if (normalized.includes("thinking mode") || normalized.includes("working notes") || normalized.includes("draft option")) return true;
   return (
     normalized === "checking your writing style" ||
     normalized === "checking your writing style..." ||
@@ -205,7 +208,8 @@ async function readErrorBody(res: Response) {
   return text.slice(0, 500);
 }
 
-function resolveEffectiveMode(config: AppConfig, stats: { messageCount: number; totalBodyChars: number; userInstructionChars: number }): EffectiveGleanMode {
+function resolveEffectiveMode(config: AppConfig, stats: { messageCount: number; totalBodyChars: number; userInstructionChars: number; schedulingIntent?: boolean }): EffectiveGleanMode {
+  if (stats.schedulingIntent) return "thinking";
   if (config.replySettings.replyMode === "fast") return "fast";
   if (config.replySettings.replyMode === "thinking") return "thinking";
 
@@ -214,6 +218,14 @@ function resolveEffectiveMode(config: AppConfig, stats: { messageCount: number; 
   }
 
   return "fast";
+}
+
+function cleanDraft(value: string) {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/[—–]/g, ",")
+    .replace(/^\s*(working notes?|analysis|reasoning|thinking|status update):[\s\S]*?(?=\n\n|$)/gim, "")
+    .trim();
 }
 
 function toDraftVariants(values: string[]): DraftVariant[] {

@@ -10,6 +10,7 @@ interface ReplySettings {
   defaultLength: ReplyLength;
   overwriteBehavior: OverwriteBehavior;
   contextDepth: ContextDepth;
+  writingPreferences: string;
 }
 
 interface HelperStatus {
@@ -54,6 +55,7 @@ const defaultLength = document.querySelector<HTMLSelectElement>("#defaultLength"
 const overwriteBehavior = document.querySelector<HTMLSelectElement>("#overwriteBehavior");
 const contextDepth = document.querySelector<HTMLSelectElement>("#contextDepth");
 const gleanTimeoutMs = document.querySelector<HTMLSelectElement>("#gleanTimeoutMs");
+const writingPreferences = document.querySelector<HTMLTextAreaElement>("#writingPreferences");
 const statusDot = document.querySelector<HTMLElement>("#statusDot");
 const statusText = document.querySelector<HTMLElement>("#statusText");
 const tokenState = document.querySelector<HTMLElement>("#tokenState");
@@ -156,6 +158,7 @@ function renderStatus(status: HelperStatus) {
   if (overwriteBehavior) overwriteBehavior.value = status.replySettings.overwriteBehavior;
   if (contextDepth) contextDepth.value = status.replySettings.contextDepth;
   if (gleanTimeoutMs) gleanTimeoutMs.value = String(status.gleanTimeoutMs);
+  if (writingPreferences) writingPreferences.value = status.replySettings.writingPreferences;
   if (statusDot) statusDot.className = status.running ? "dot on" : "dot off";
   if (statusText) {
     statusText.textContent = status.running
@@ -190,6 +193,7 @@ function readReplySettings(): ReplySettings {
     defaultLength: readSelect(defaultLength, "short") as ReplyLength,
     overwriteBehavior: readSelect(overwriteBehavior, "replace") as OverwriteBehavior,
     contextDepth: readSelect(contextDepth, "visibleThread") as ContextDepth,
+    writingPreferences: writingPreferences?.value.trim() || "Do not use em dashes. Write concise, warm, direct replies.",
   };
 }
 

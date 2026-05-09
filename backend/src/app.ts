@@ -6,7 +6,7 @@ import type { DraftErrorPayload, DraftResponsePayload } from "@gmail-glean-reply
 import type { AppConfig } from "./config.js";
 import { draftWithGlean, testGleanConnection } from "./gleanClient.js";
 import { buildReplyPrompt } from "./prompt.js";
-import { draftRequestSchema } from "./schema.js";
+import { draftRequestSchema, type ValidDraftRequest } from "./schema.js";
 
 const testGleanConnectionSchema = z.object({
   gleanServerUrl: z.string().url().optional(),
@@ -130,6 +130,7 @@ export function createBackendApp(config: AppConfig) {
         messageCount: payload.messages.length,
         totalBodyChars: payload.messages.reduce((total, message) => total + message.bodyText.length, 0),
         userInstructionChars: payload.userInstruction?.length ?? 0,
+        schedulingIntent: hasSchedulingIntent(payload),
       });
       const response: DraftResponsePayload = {
         draft: result.draft,
@@ -167,4 +168,18 @@ function secureStringEquals(a: string, b: string) {
   const aBuffer = Buffer.from(a);
   const bBuffer = Buffer.from(b);
   return aBuffer.length === bBuffer.length && timingSafeEqual(aBuffer, bBuffer);
+}
+
+function hasSchedulingIntent(payload: ValidDraftRequest) {
+  const text = [
+    payload.threadSubject,
+    payload.userInstruction,
+    payload.currentDraft,
+    ...payload.messages.map((message) => message.bodyText),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+
+  return /\b(schedule|scheduling|calendar|available|availability|free|busy|meet|meeting|call|sync|slot|slots|time|times|tomorrow|today|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|am|pm)\b/.test(text);
 }
