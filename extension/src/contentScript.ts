@@ -1,4 +1,5 @@
 import type { BackgroundResponse, ContentMessage } from "./types";
+import type { DraftRequestPayload, DraftResponsePayload, DraftVariant } from "@gmail-glean-reply-drafter/shared";
 import {
   extractVisibleThreadForActiveComposer,
   findActiveComposer,
@@ -8,6 +9,15 @@ import {
 } from "./gmailAdapter";
 
 let lastComposer: ReturnType<typeof findActiveComposer>;
+let lastDebugState: DebugState | undefined;
+
+interface DebugState {
+  request?: DraftRequestPayload;
+  response?: DraftResponsePayload;
+  error?: string;
+  selectedVariantIndex?: number;
+}
+
 
 chrome.runtime.onMessage.addListener((message: ContentMessage) => {
   if (message.type === "DRAFT_REPLY_COMMAND") {
@@ -26,9 +36,9 @@ document.addEventListener("keydown", (event) => {
   void draftReply();
 });
 
-async function draftReply() {
+async function draftReply(instructionOverride = "") {
   const existingComposer = findActiveComposer();
-  const userInstruction = getInstruction(existingComposer);
+  const userInstruction = combineInstructions(getInstruction(existingComposer), instructionOverride);
   const extraction = extractVisibleThreadForActiveComposer({ userInstruction });
   const composer = extraction.ok ? extraction.composer : extraction.composer ?? findActiveComposer();
   if (composer) lastComposer = composer;
@@ -58,15 +68,23 @@ async function draftReply() {
     requestId: extraction.payload.clientRequestId,
   });
 
+  lastDebugState = { request: extraction.payload };
+  ui.setDebugState(lastDebugState);
+
   const response = (await chrome.runtime.sendMessage({
     type: "REQUEST_DRAFT",
     payload: extraction.payload,
   })) as BackgroundResponse;
 
   if (!response.ok) {
+    lastDebugState = { request: extraction.payload, error: response.error };
+    ui.setDebugState(lastDebugState);
     ui.setError(response.error);
     return;
   }
+
+  lastDebugState = { request: extraction.payload, response: response.data, selectedVariantIndex: response.data.selectedVariantIndex ?? 0 };
+  ui.setDebugState(lastDebugState);
 
   const targetComposer = lastComposer ?? extraction.composer;
   const variants = response.data.variants?.length ? response.data.variants : [{ draft: response.data.draft, label: "Draft 1" }];
@@ -93,7 +111,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           box-shadow: 0 10px 28px rgba(32, 33, 36, 0.12), 0 1px 2px rgba(32, 33, 36, 0.10);
           color: #202124;
           display: grid;
-          grid-template-columns: auto minmax(260px, 1fr) auto auto auto;
+          grid-template-columns: auto minmax(260px, 1fr) auto auto auto auto;
           font: 13px/1.35 Arial, sans-serif;
           gap: 10px;
           margin: 10px 0;
@@ -201,6 +219,49 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           gap: 8px;
           grid-column: 2 / -1;
         }
+        .ggd-inline-ui .debug-panel {
+          background: #f8fafc;
+          border: 1px solid #e3e7ee;
+          border-radius: 10px;
+          display: none;
+          gap: 10px;
+          grid-column: 1 / -1;
+          padding: 10px;
+        }
+        .ggd-inline-ui.debug-open .debug-panel {
+          display: grid;
+        }
+        .ggd-inline-ui .debug-grid {
+          display: grid;
+          gap: 10px;
+          grid-template-columns: 1fr 1fr;
+        }
+        .ggd-inline-ui .debug-box {
+          background: #ffffff;
+          border: 1px solid #e3e7ee;
+          border-radius: 8px;
+          box-sizing: border-box;
+          color: #3c4043;
+          font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+          max-height: 180px;
+          min-height: 110px;
+          overflow: auto;
+          padding: 10px;
+          white-space: pre-wrap;
+        }
+        .ggd-inline-ui .debug-panel label {
+          color: #3c4043;
+          display: grid;
+          font-size: 12px;
+          font-weight: 700;
+          gap: 6px;
+        }
+        .ggd-inline-ui .debug-actions {
+          align-items: center;
+          display: flex;
+          gap: 8px;
+          justify-content: flex-end;
+        }
         .ggd-inline-ui.has-variants .variants {
           display: flex;
         }
@@ -291,8 +352,12 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
             grid-row: 1 / 2;
           }
           .ggd-inline-ui .message,
-          .ggd-inline-ui .variants {
+          .ggd-inline-ui .variants,
+          .ggd-inline-ui .debug-panel {
             grid-column: 1 / -1;
+          }
+          .ggd-inline-ui .debug-grid {
+            grid-template-columns: 1fr;
           }
         }
       </style>
@@ -300,6 +365,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       <textarea class="instruction" placeholder="Add guidance or revision notes"></textarea>
       <button type="button" class="draft">Draft</button>
       <button type="button" class="secondary regenerate">Revise</button>
+      <button type="button" class="secondary debug-toggle" title="Open debug assistant">Debug</button>
       <button type="button" class="close" title="Close" aria-label="Close">
         <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
           <path d="M5.8 5.8 14.2 14.2M14.2 5.8 5.8 14.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -307,15 +373,36 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       </button>
       <span class="message">Ready when you are.</span>
       <div class="variants" aria-live="polite">
-        <button type="button" class="variant-button previous" title="Previous draft" aria-label="Previous draft">Prev</button>
+        <button type="button" class="variant-button previous" title="Previous draft" aria-label="Previous draft">‹</button>
         <span class="variant-count">Draft 1 of 1</span>
-        <button type="button" class="variant-button next" title="Next draft" aria-label="Next draft">Next</button>
+        <button type="button" class="variant-button next" title="Next draft" aria-label="Next draft">›</button>
+      </div>
+      <div class="debug-panel">
+        <div class="debug-grid">
+          <label>Last request payload<pre class="debug-box request-debug">No request yet.</pre></label>
+          <label>Last response or error<pre class="debug-box response-debug">No response yet.</pre></label>
+        </div>
+        <label>Improve this draft
+          <textarea class="debug-instruction" placeholder="Example: make this warmer, remove the scheduling caveat, and keep it under 4 sentences"></textarea>
+        </label>
+        <div class="debug-actions">
+          <button type="button" class="secondary copy-debug">Copy debug</button>
+          <button type="button" class="improve-debug">Improve draft</button>
+        </div>
       </div>
     `;
     root.prepend(el);
     el.querySelector<HTMLButtonElement>(".draft")?.addEventListener("click", () => void draftReply());
     el.querySelector<HTMLButtonElement>(".regenerate")?.addEventListener("click", () => void draftReply());
     const uiEl = el;
+    el.querySelector<HTMLButtonElement>(".debug-toggle")?.addEventListener("click", () => uiEl.classList.toggle("debug-open"));
+    el.querySelector<HTMLButtonElement>(".improve-debug")?.addEventListener("click", () => {
+      const instruction = uiEl.querySelector<HTMLTextAreaElement>(".debug-instruction")?.value.trim() ?? "";
+      if (instruction) void draftReply(instruction);
+    });
+    el.querySelector<HTMLButtonElement>(".copy-debug")?.addEventListener("click", () => {
+      void navigator.clipboard?.writeText(formatDebugState(lastDebugState));
+    });
     el.querySelector<HTMLButtonElement>(".close")?.addEventListener("click", () => uiEl.remove());
   }
 
@@ -323,6 +410,8 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   const variantCount = el.querySelector<HTMLElement>(".variant-count");
   const previousVariant = el.querySelector<HTMLButtonElement>(".previous");
   const nextVariant = el.querySelector<HTMLButtonElement>(".next");
+  const requestDebug = el.querySelector<HTMLElement>(".request-debug");
+  const responseDebug = el.querySelector<HTMLElement>(".response-debug");
   let variants: Array<{ draft: string; label: string }> = [];
   let selectedVariantIndex = 0;
   let variantComposer: ReturnType<typeof findActiveComposer> | undefined;
@@ -333,9 +422,11 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
     if (!selectedVariant) return;
     insertDraft(variantComposer, selectedVariant.draft, "replace");
     if (variantCount) variantCount.textContent = `${selectedVariant.label} of ${variants.length}`;
+    if (lastDebugState) lastDebugState.selectedVariantIndex = selectedVariantIndex;
+    renderDebugState(requestDebug, responseDebug, lastDebugState);
   };
-  previousVariant?.addEventListener("click", () => applyVariant(selectedVariantIndex - 1));
-  nextVariant?.addEventListener("click", () => applyVariant(selectedVariantIndex + 1));
+  if (previousVariant) previousVariant.onclick = () => applyVariant(selectedVariantIndex - 1);
+  if (nextVariant) nextVariant.onclick = () => applyVariant(selectedVariantIndex + 1);
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
   return {
     setLoading(text: string) {
@@ -364,15 +455,57 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       });
       if (message) message.textContent = text;
     },
-    setVariants(nextVariants: Array<{ draft: string; label: string }>, composerTarget: ReturnType<typeof findActiveComposer>, selectedIndex: number) {
+    setDebugState(state: DebugState) {
+      renderDebugState(requestDebug, responseDebug, state);
+    },
+    setVariants(nextVariants: DraftVariant[], composerTarget: ReturnType<typeof findActiveComposer>, selectedIndex: number) {
       variants = nextVariants;
       selectedVariantIndex = selectedIndex;
       variantComposer = composerTarget;
       el.classList.toggle("has-variants", variants.length > 1);
-      if (variantCount && variants.length > 1) {
+      if (variantCount) {
         variantCount.textContent = `${variants[selectedVariantIndex]?.label ?? "Draft 1"} of ${variants.length}`;
       }
+      renderDebugState(requestDebug, responseDebug, lastDebugState);
     },
+  };
+}
+
+function combineInstructions(primary: string, override: string) {
+  return [primary.trim(), override.trim()].filter(Boolean).join("\n\nAdditional revision request:\n");
+}
+
+function renderDebugState(requestDebug: HTMLElement | null, responseDebug: HTMLElement | null, state: DebugState | undefined) {
+  if (requestDebug) requestDebug.textContent = state?.request ? JSON.stringify(redactDebugPayload(state.request), null, 2) : "No request yet.";
+  if (responseDebug) {
+    responseDebug.textContent = state?.response
+      ? JSON.stringify({
+          selectedVariantIndex: state.selectedVariantIndex ?? state.response.selectedVariantIndex,
+          effectiveGleanMode: state.response.effectiveGleanMode,
+          summary: state.response.summary,
+          variants: state.response.variants,
+          warnings: state.response.warnings,
+          requestId: state.response.requestId,
+        }, null, 2)
+      : state?.error
+        ? state.error
+        : "No response yet.";
+  }
+}
+
+function formatDebugState(state: DebugState | undefined) {
+  return JSON.stringify({
+    request: state?.request ? redactDebugPayload(state.request) : undefined,
+    response: state?.response,
+    error: state?.error,
+    selectedVariantIndex: state?.selectedVariantIndex,
+  }, null, 2);
+}
+
+function redactDebugPayload(payload: DraftRequestPayload) {
+  return {
+    ...payload,
+    pageUrl: payload.pageUrl.replace(/[#?].*$/, ""),
   };
 }
 

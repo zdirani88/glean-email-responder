@@ -49,17 +49,17 @@ export async function draftWithGlean(prompt: string, config: AppConfig, requestS
     .filter(Boolean)
     .filter((text) => !isProgressMessage(text));
 
-  const fallbackDraft = responseMessages
+  const fallbackDrafts = responseMessages
     .filter(isContentMessage)
     .map(getMessageText)
     .map((text) => text.trim())
     .filter(Boolean)
-    .filter((text) => !isProgressMessage(text))
-    .at(-1) ?? "";
-  const finalDraft = assistantDrafts.at(-1) ?? fallbackDraft;
-  const cleanedDraft = cleanDraft(finalDraft);
-  const variants = toDraftVariants(cleanedDraft ? [cleanedDraft] : []);
-  const draft = variants.at(0)?.draft ?? "";
+    .filter((text) => !isProgressMessage(text));
+  const cleanedDrafts = (assistantDrafts.length ? assistantDrafts : fallbackDrafts)
+    .map(cleanDraft)
+    .filter(Boolean);
+  const variants = toDraftVariants(cleanedDrafts);
+  const draft = variants.at(-1)?.draft ?? variants.at(0)?.draft ?? "";
 
   if (!draft.trim()) {
     throw new Error("Glean returned an empty draft.");
