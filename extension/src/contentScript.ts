@@ -193,7 +193,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: nowrap;
+          white-space: normal;
         }
         .ggd-inline-ui .variants {
           align-items: center;
@@ -355,7 +355,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       buttons.forEach((button) => {
         button.disabled = false;
       });
-      if (message) message.textContent = text;
+      if (message) message.innerHTML = formatErrorMessage(text);
     },
     setSuccess(text: string) {
       el.classList.remove("error", "loading");
@@ -374,6 +374,13 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       }
     },
   };
+}
+
+function formatErrorMessage(text: string) {
+  const [title, ...rest] = text.split(":");
+  const detail = rest.join(":").trim();
+  if (!detail) return escapeHtml(text);
+  return `<strong>${escapeHtml(title ?? "Error")}:</strong> <span>${escapeHtml(detail)}</span>`;
 }
 
 function wait(ms: number) {

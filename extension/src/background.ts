@@ -47,17 +47,17 @@ async function requestDraft(payload: BackgroundMessage["payload"]): Promise<Back
       if (res.status === 401) {
         return {
           ok: false,
-          error: "Extension is not paired with Gmail Glean Helper. Open the helper app, click Pair extension, then try again.",
+          error: "Pairing needed: open Gmail Glean Helper, click Pair extension, then reload Gmail and try again.",
         };
       }
-      return { ok: false, error: data.error ?? `Backend returned ${res.status}` };
+      return { ok: false, error: toFriendlyBackendError(data.error ?? `Backend returned ${res.status}`, res.status) };
     }
 
     return { ok: true, data };
   } catch (error) {
     return {
       ok: false,
-      error: "Could not reach Gmail Glean Helper. Open the helper app, click Save and start or Restart server, then try again.",
+      error: "Helper not reachable: open Gmail Glean Helper and click Restart server. If needed, quit and reopen the helper app.",
     };
   }
 }
@@ -71,4 +71,14 @@ async function getConfig(): Promise<ExtensionConfig> {
     config.backendSecret = stored.backendSecret;
   }
   return config;
+}
+
+function toFriendlyBackendError(error: string, status: number) {
+  const text = error.toLowerCase();
+  if (status === 429) return "Too many requests: wait a moment, then try again.";
+  if (text.includes("timed out")) return "Glean took too long: open Gmail Glean Helper, increase Timeout, then try again.";
+  if (text.includes("401") || text.includes("403") || text.includes("unauthorized") || text.includes("authenticate") || text.includes("token problem")) return "Glean token problem: open Gmail Glean Helper, paste a fresh Client API token with CHAT and SEARCH scopes, click Save and start, then try again.";
+  if (text.includes("bad request") || text.includes("400")) return "Glean rejected the request: try again, or switch Response mode to Auto in Gmail Glean Helper.";
+  if (text.includes("empty draft")) return "Glean did not return a final draft. Try again with a short guidance note.";
+  return error;
 }

@@ -98,7 +98,11 @@ export function createBackendApp(config: AppConfig) {
       res.json({ ok: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not reach Glean.";
-      res.status(message.includes("401") || message.includes("403") ? 401 : 502).json({ error: message });
+      if (isGleanAuthError(message)) {
+        res.status(401).json({ error: getGleanAuthErrorMessage() });
+        return;
+      }
+      res.status(502).json({ error: message });
     }
   });
 
@@ -156,12 +160,22 @@ export function createBackendApp(config: AppConfig) {
         latencyMs: Date.now() - startedAt,
         error: message,
       });
-      const body: DraftErrorPayload = { error: message, requestId };
-      res.status(message.includes("timed out") ? 504 : 502).json(body);
+      const friendlyMessage = isGleanAuthError(message) ? getGleanAuthErrorMessage() : message;
+      const body: DraftErrorPayload = { error: friendlyMessage, requestId };
+      res.status(isGleanAuthError(message) ? 401 : message.includes("timed out") ? 504 : 502).json(body);
     }
   });
 
   return app;
+}
+
+function isGleanAuthError(message: string) {
+  const normalized = message.toLowerCase();
+  return normalized.includes("glean chat 401") || normalized.includes("glean chat 403") || normalized.includes("please authenticate") || normalized.includes("unauthorized");
+}
+
+function getGleanAuthErrorMessage() {
+  return "Glean token problem: open Gmail Glean Helper, paste a fresh Client API token with CHAT and SEARCH scopes, click Save and start, then try again.";
 }
 
 function secureStringEquals(a: string, b: string) {

@@ -30,6 +30,8 @@ interface PublicStatus {
   launchAtLogin: boolean;
   extensionPath: string;
   extensionId: string;
+  extensionFolderReady: boolean;
+  bundledExtensionReady: boolean;
   serverError?: string;
 }
 
@@ -245,6 +247,8 @@ function getPublicStatus(): PublicStatus {
     launchAtLogin: currentConfig.launchAtLogin,
     extensionPath: getInstallableExtensionPath(),
     extensionId: EXTENSION_ID,
+    extensionFolderReady: existsSync(getInstallableExtensionPath()),
+    bundledExtensionReady: existsSync(getBundledExtensionPath()),
   };
   if (lastServerError) status.serverError = lastServerError;
   return status;

@@ -54,6 +54,100 @@
         display: flex;
         gap: 10px;
       }
+      .hero {
+        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+        display: grid;
+        gap: 16px;
+      }
+      .hero-title {
+        align-items: start;
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+      }
+      .progress {
+        background: #edf2f7;
+        border-radius: 999px;
+        height: 8px;
+        overflow: hidden;
+      }
+      .progress span {
+        background: #1a73e8;
+        display: block;
+        height: 100%;
+        transition: width 180ms ease;
+        width: 0%;
+      }
+      .setup-grid,
+      .health-grid {
+        display: grid;
+        gap: 10px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .setup-step,
+      .health-item {
+        align-items: center;
+        background: #f8fafc;
+        border: 1px solid #e3e7ee;
+        border-radius: 10px;
+        display: grid;
+        gap: 8px;
+        grid-template-columns: auto 1fr auto;
+        min-height: 48px;
+        padding: 10px 12px;
+      }
+      .setup-step strong,
+      .health-item strong {
+        color: #202124;
+        display: block;
+      }
+      .setup-step small,
+      .health-item small {
+        color: #5f6368;
+        display: block;
+        font-size: 12px;
+        margin-top: 2px;
+      }
+      .badge {
+        align-items: center;
+        background: #eef2f7;
+        border-radius: 999px;
+        color: #5f6368;
+        display: inline-flex;
+        font-size: 12px;
+        font-weight: 700;
+        height: 24px;
+        justify-content: center;
+        width: 24px;
+      }
+      .setup-step.done,
+      .health-item.done {
+        background: #f0f9f3;
+        border-color: #c8ead2;
+      }
+      .setup-step.done .badge,
+      .health-item.done .badge {
+        background: #188038;
+        color: #ffffff;
+      }
+      .setup-step.warn,
+      .health-item.warn {
+        background: #fff8e1;
+        border-color: #f6d889;
+      }
+      .setup-step.warn .badge,
+      .health-item.warn .badge {
+        background: #f9ab00;
+        color: #202124;
+      }
+      .mini-button {
+        background: #ffffff;
+        box-shadow: inset 0 0 0 1px #dfe3ea;
+        color: #202124;
+        font-size: 12px;
+        min-height: 32px;
+        padding: 0 10px;
+      }
       .dot {
         border-radius: 999px;
         height: 10px;
@@ -170,8 +264,13 @@
         grid-template-columns: 1fr 1fr;
       }
       @media (max-width: 760px) {
-        .split {
+        .split,
+        .setup-grid,
+        .health-grid {
           grid-template-columns: 1fr;
+        }
+        .hero-title {
+          display: grid;
         }
       }
     </style>
@@ -183,6 +282,50 @@
         <p>Runs the local backend that lets the Chrome extension ask Glean to draft Gmail replies.</p>
       </header>
 
+
+      <section class="hero">
+        <div class="hero-title">
+          <div>
+            <h2>Setup guide</h2>
+            <p>Follow the four checks below. When they are green, Gmail drafting is ready.</p>
+          </div>
+          <button id="refreshStatus" type="button" class="secondary">Refresh status</button>
+        </div>
+        <div class="progress" aria-hidden="true"><span id="setupProgress"></span></div>
+        <div class="setup-grid">
+          <div id="stepToken" class="setup-step">
+            <span class="badge">1</span>
+            <span><strong>Connect Glean</strong><small>Save and test your Client API token.</small></span>
+            <button id="jumpConnect" type="button" class="mini-button">Open</button>
+          </div>
+          <div id="stepServer" class="setup-step">
+            <span class="badge">2</span>
+            <span><strong>Start helper</strong><small>Local backend running on this Mac.</small></span>
+            <button id="quickRestart" type="button" class="mini-button">Start</button>
+          </div>
+          <div id="stepExtension" class="setup-step">
+            <span class="badge">3</span>
+            <span><strong>Refresh extension</strong><small>Copy the latest browser extension and open Chrome.</small></span>
+            <button id="quickRefreshExtension" type="button" class="mini-button">Refresh</button>
+          </div>
+          <div id="stepPair" class="setup-step">
+            <span class="badge">4</span>
+            <span><strong>Pair extension</strong><small>Authorize the extension to call the helper.</small></span>
+            <button id="quickPair" type="button" class="mini-button">Pair</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Health checklist</h2>
+        <div class="health-grid">
+          <div id="healthBackend" class="health-item"><span class="badge">•</span><span><strong>Backend</strong><small>Checking...</small></span></div>
+          <div id="healthToken" class="health-item"><span class="badge">•</span><span><strong>Glean token</strong><small>Checking...</small></span></div>
+          <div id="healthSecret" class="health-item"><span class="badge">•</span><span><strong>Pairing secret</strong><small>Checking...</small></span></div>
+          <div id="healthExtension" class="health-item"><span class="badge">•</span><span><strong>Extension folder</strong><small>Checking...</small></span></div>
+        </div>
+      </section>
+
       <section>
         <div class="status">
           <span id="statusDot" class="dot off"></span>
@@ -191,7 +334,7 @@
         </div>
       </section>
 
-      <section class="form">
+      <section id="connectSection" class="form">
         <h2>Connect Glean</h2>
         <label>
           Glean server URL
@@ -291,19 +434,19 @@
 
         <section>
           <h2>Chrome extension</h2>
-          <p class="message neutral" style="margin-bottom: 12px">After installing or reloading the extension, click <strong>Pair extension</strong>. This prevents Unauthorized errors.</p>
+          <p class="message neutral" style="margin-bottom: 12px">Click <strong>Refresh extension copy</strong> after every helper app update, then reload the extension in Chrome. Click <strong>Pair extension</strong> after install, reload, secret rotation, or any Unauthorized error.</p>
           <ol>
-            <li>Click <strong>Open extension folder</strong>. This copies the extension to your Desktop and opens Chrome extensions.</li>
+            <li>Click <strong>Refresh extension copy</strong>. This copies the latest extension to your Desktop and opens Chrome extensions.</li>
             <li>Enable Developer Mode.</li>
             <li>Click Load unpacked.</li>
-            <li>Choose Desktop, then select <code>Gmail Glean Reply Extension</code>.</li>
+            <li>Choose Desktop, then select <code>Gmail Glean Reply Extension</code>. If it is already installed, click the extension reload icon instead.</li>
             <li>Click <strong>Pair extension</strong> to automatically save the local backend URL and secret. Do this any time you reinstall the app, rotate the secret, or see an Unauthorized error.</li>
             <li>Use <code>Cmd+Shift+Y</code> in a Gmail reply.</li>
           </ol>
           <p class="hint" style="margin-top: 10px">Extension install folder: <code id="extensionPath">Checking...</code></p>
           <p class="hint" style="margin-top: 8px">Pinned extension ID: <code id="extensionId">Checking...</code></p>
           <div class="row" style="margin-top: 14px">
-            <button id="openExtensionFolder" type="button">Open extension folder</button>
+            <button id="openExtensionFolder" type="button">Refresh extension copy</button>
             <button id="pairExtension" type="button">Pair extension</button>
             <button id="copyPairingLink" type="button" class="secondary">Copy pairing link</button>
             <button id="openExtensions" type="button" class="secondary">Open extensions</button>
