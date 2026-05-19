@@ -108,10 +108,10 @@ In the helper app, ask the user to:
 3. Open Admin Console or Settings.
 4. Open API tokens.
 5. Create a Client API token.
-6. Add `CHAT` and `SEARCH` scopes.
+6. Add `CHAT`, `SEARCH`, and calendar/Google Calendar scopes if available. Calendar access lets Glean check free/busy availability for scheduling replies.
 7. Copy the token and paste it into Gmail Glean Helper.
 
-If the user does not see API tokens, they likely need a Glean admin or developer to create the token.
+If the user does not see API tokens or calendar scopes, they likely need a Glean admin or developer to create the token or enable the Google Calendar action.
 
 ## Reply Settings
 

@@ -99,7 +99,7 @@ ipcMain.handle("helper:test-glean", async (_event, input: { gleanServerUrl: stri
   const validated = validateTestGleanInput(input);
   const token = validated.token || decryptToken(currentConfig.encryptedToken);
   await testGleanConnection(toBackendConfig({ ...currentConfig, gleanServerUrl: validated.gleanServerUrl }, token));
-  return { ok: true };
+  return { ok: true, tokenExpiresAt: getTokenExpiresAt(token) };
 });
 
 ipcMain.handle("helper:restart-server", async (event) => {
@@ -473,4 +473,20 @@ function normalizeWritingPreferences(value: unknown) {
   if (typeof value !== "string") return DEFAULT_REPLY_SETTINGS.writingPreferences;
   const trimmed = value.trim();
   return trimmed.slice(0, 2000) || DEFAULT_REPLY_SETTINGS.writingPreferences;
+}
+
+function getTokenExpiresAt(token: string | undefined) {
+  if (!token) return undefined;
+  const parts = token.split(".");
+  if (parts.length < 2 || !parts[1]) return undefined;
+
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { exp?: unknown };
+    if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return undefined;
+    const expiresAt = new Date(payload.exp * 1000);
+    if (Number.isNaN(expiresAt.getTime())) return undefined;
+    return expiresAt.toISOString();
+  } catch {
+    return undefined;
+  }
 }

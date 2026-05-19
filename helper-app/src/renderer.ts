@@ -32,7 +32,7 @@ interface HelperStatus {
 interface HelperApi {
   getStatus(): Promise<HelperStatus>;
   saveConfig(input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean; gleanTimeoutMs: number; replySettings: ReplySettings }): Promise<HelperStatus>;
-  testGlean(input: { gleanServerUrl: string; token?: string }): Promise<{ ok: true }>;
+  testGlean(input: { gleanServerUrl: string; token?: string }): Promise<{ ok: true; tokenExpiresAt?: string }>;
   restartServer(): Promise<HelperStatus>;
   openUrl(url: string): Promise<void>;
   openExtensionFolder(): Promise<void>;
@@ -130,12 +130,13 @@ saveButton?.addEventListener("click", async () => {
 });
 
 testButton?.addEventListener("click", async () => {
-  await runAction("Glean connection works.", async () => {
+  await runAction(undefined, async () => {
     const input: { gleanServerUrl: string; token?: string } = {
       gleanServerUrl: serverUrl?.value ?? "",
     };
     if (token?.value) input.token = token.value;
-    await window.gmailGleanHelper.testGlean(input);
+    const result = await window.gmailGleanHelper.testGlean(input);
+    setMessage(formatGleanTestSuccess(result.tokenExpiresAt), "success");
   });
 });
 
@@ -256,18 +257,33 @@ function setHealth(element: HTMLElement | null, done: boolean, title: string, de
   if (small) small.textContent = detail;
 }
 
-async function runAction(successText: string, action: () => Promise<void>) {
+async function runAction(successText: string | undefined, action: () => Promise<void>) {
   setBusy(true);
   setMessage("Working...", "neutral");
 
   try {
     await action();
-    setMessage(successText, "success");
+    if (successText) setMessage(successText, "success");
   } catch (error) {
     setMessage(toFriendlyError(error), "error");
   } finally {
     setBusy(false);
   }
+}
+
+function formatGleanTestSuccess(tokenExpiresAt: string | undefined) {
+  if (!tokenExpiresAt) return "Glean connection works. Token expiration is not available from this token.";
+
+  const expiresAt = new Date(tokenExpiresAt);
+  const days = Math.ceil((expiresAt.getTime() - Date.now()) / 86_400_000);
+  const formatted = new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(expiresAt);
+
+  if (days < 0) return `Glean connection works, but this token appears to have expired on ${formatted}.`;
+  if (days === 0) return `Glean connection works. Token expires today at ${formatted}.`;
+  return `Glean connection works. Token expires ${formatted}, in about ${days} day${days === 1 ? "" : "s"}.`;
 }
 
 function readReplySettings(): ReplySettings {
