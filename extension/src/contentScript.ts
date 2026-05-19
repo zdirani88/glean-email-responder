@@ -219,6 +219,9 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           gap: 8px;
           grid-column: 2 / -1;
         }
+        .ggd-inline-ui.has-draft .variants {
+          display: flex;
+        }
         .ggd-inline-ui .debug-panel {
           background: #f8fafc;
           border: 1px solid #e3e7ee;
@@ -262,8 +265,8 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           gap: 8px;
           justify-content: flex-end;
         }
-        .ggd-inline-ui.has-variants .variants {
-          display: flex;
+        .ggd-inline-ui .variant-button:disabled {
+          opacity: 0.42;
         }
         .ggd-inline-ui .variant-count {
           color: #5f6368;
@@ -432,7 +435,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
     setLoading(text: string) {
       el.classList.remove("error");
       el.classList.add("loading");
-      el.classList.remove("has-variants");
+      el.classList.remove("has-draft", "has-variants");
       buttons.forEach((button) => {
         button.disabled = true;
       });
@@ -462,7 +465,10 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       variants = nextVariants;
       selectedVariantIndex = selectedIndex;
       variantComposer = composerTarget;
+      el.classList.add("has-draft");
       el.classList.toggle("has-variants", variants.length > 1);
+      if (previousVariant) previousVariant.disabled = variants.length <= 1;
+      if (nextVariant) nextVariant.disabled = variants.length <= 1;
       if (variantCount) {
         variantCount.textContent = `${variants[selectedVariantIndex]?.label ?? "Draft 1"} of ${variants.length}`;
       }

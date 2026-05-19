@@ -59,7 +59,7 @@ export async function draftWithGlean(prompt: string, config: AppConfig, requestS
     .map(cleanDraft)
     .filter(Boolean);
   const variants = toDraftVariants(cleanedDrafts);
-  const draft = variants.at(-1)?.draft ?? variants.at(0)?.draft ?? "";
+  const draft = variants.at(0)?.draft ?? "";
 
   if (!draft.trim()) {
     throw new Error("Glean returned an empty draft.");
