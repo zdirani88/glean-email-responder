@@ -44,7 +44,7 @@ export function extractVisibleThreadForActiveComposer(options: ExtractionOptions
     return { ok: false, error: "Open a Gmail reply box and place your cursor in it first." };
   }
 
-  const messages = extractVisibleMessages();
+  const messages = extractVisibleMessages(composer);
   if (messages.length < 1) {
     return { ok: false, error: "Could not find at least one usable visible message in this Gmail thread.", composer };
   }
@@ -223,13 +223,15 @@ function extractSubject() {
   return normalizeText(subject?.innerText ?? "");
 }
 
-function extractVisibleMessages(): ExtractedMessage[] {
+function extractVisibleMessages(composer?: ComposerTarget): ExtractedMessage[] {
+  const composerTop = composer ? composer.root.getBoundingClientRect().top : undefined;
   const candidates = Array.from(document.querySelectorAll<HTMLElement>("[role='listitem'], .adn.ads, .gs"));
   const seen = new Set<string>();
   const messages: ExtractedMessage[] = [];
 
   for (const candidate of candidates) {
     if (!isVisible(candidate)) continue;
+    if (composerTop !== undefined && candidate.getBoundingClientRect().top >= composerTop - 8) continue;
 
     const bodyNode =
       candidate.querySelector<HTMLElement>(".a3s.aiL") ??

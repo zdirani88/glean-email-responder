@@ -467,10 +467,17 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       variantComposer = composerTarget;
       el.classList.add("has-draft");
       el.classList.toggle("has-variants", variants.length > 1);
-      if (previousVariant) previousVariant.disabled = variants.length <= 1;
-      if (nextVariant) nextVariant.disabled = variants.length <= 1;
+      const hasMultipleVariants = variants.length > 1;
+      if (previousVariant) {
+        previousVariant.disabled = !hasMultipleVariants;
+        previousVariant.title = hasMultipleVariants ? "Previous draft" : "Only one draft returned";
+      }
+      if (nextVariant) {
+        nextVariant.disabled = !hasMultipleVariants;
+        nextVariant.title = hasMultipleVariants ? "Next draft" : "Only one draft returned";
+      }
       if (variantCount) {
-        variantCount.textContent = `${variants[selectedVariantIndex]?.label ?? "Draft 1"} of ${variants.length}`;
+        variantCount.textContent = hasMultipleVariants ? `${variants[selectedVariantIndex]?.label ?? "Draft 1"} of ${variants.length}` : "1 draft returned";
       }
       renderDebugState(requestDebug, responseDebug, lastDebugState);
     },

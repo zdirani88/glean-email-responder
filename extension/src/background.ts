@@ -16,7 +16,14 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     return;
   }
 
-  await chrome.tabs.sendMessage(tab.id, { type: "DRAFT_REPLY_COMMAND" });
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "DRAFT_REPLY_COMMAND" });
+  } catch (error) {
+    console.info("draft_command_content_script_unavailable", {
+      tabId: tab.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 });
 
 chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendResponse) => {
