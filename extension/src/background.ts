@@ -27,20 +27,20 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendResponse) => {
-  if (message.type !== "REQUEST_DRAFT") {
+  if (message.type !== "REQUEST_DRAFT" && message.type !== "REQUEST_NEW_EMAIL_DRAFT") {
     return false;
   }
 
-  requestDraft(message.payload).then(sendResponse);
+  requestDraft(message.payload, message.type === "REQUEST_NEW_EMAIL_DRAFT" ? "/draft-new-email" : "/draft-email-reply").then(sendResponse);
   return true;
 });
 
-async function requestDraft(payload: BackgroundMessage["payload"]): Promise<BackgroundResponse> {
+async function requestDraft(payload: BackgroundMessage["payload"], endpoint: "/draft-email-reply" | "/draft-new-email"): Promise<BackgroundResponse> {
   const config = await getConfig();
   const baseUrl = config.backendBaseUrl.replace(/\/$/, "");
 
   try {
-    const res = await fetch(`${baseUrl}/draft-email-reply`, {
+    const res = await fetch(`${baseUrl}${endpoint}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

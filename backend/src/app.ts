@@ -5,8 +5,8 @@ import { z } from "zod";
 import type { DraftErrorPayload, DraftResponsePayload } from "@gmail-glean-reply-drafter/shared";
 import type { AppConfig } from "./config.js";
 import { draftWithGlean, testGleanConnection } from "./gleanClient.js";
-import { buildReplyPrompt } from "./prompt.js";
-import { draftRequestSchema, type ValidDraftRequest } from "./schema.js";
+import { buildNewEmailPrompt, buildReplyPrompt } from "./prompt.js";
+import { draftRequestSchema, newEmailRequestSchema, type ValidDraftRequest, type ValidNewEmailRequest } from "./schema.js";
 
 const testGleanConnectionSchema = z.object({
   gleanServerUrl: z.string().url().optional(),
@@ -171,6 +171,71 @@ export function createBackendApp(config: AppConfig) {
     }
   });
 
+  app.post("/draft-new-email", async (req, res) => {
+    const startedAt = Date.now();
+    const requestId = req.body?.clientRequestId || crypto.randomUUID();
+
+    const parsed = newEmailRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const body: DraftErrorPayload = {
+        error: "Invalid new email draft request payload.",
+        requestId,
+        warnings: parsed.error.issues.map((issue) => issue.message),
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    const payload = parsed.data;
+    console.info("new_email_draft_started", {
+      requestId,
+      hasSubject: Boolean(payload.composeSubject),
+      recipientCount: payload.recipientsVisible.length,
+    });
+
+    try {
+      const prompt = buildNewEmailPrompt(payload, config.replySettings);
+      const result = await draftWithGlean(prompt, config, {
+        messageCount: 0,
+        totalBodyChars: payload.currentDraft?.length ?? 0,
+        userInstructionChars: payload.userInstruction.length,
+        schedulingIntent: hasNewEmailSchedulingIntent(payload),
+      });
+      const parsedVariants = result.variants.map((variant) => {
+        const parsedDraft = parseNewEmailDraft(variant.draft, payload.composeSubject);
+        return { ...variant, draft: parsedDraft.body, subject: parsedDraft.subject };
+      });
+      const selected = parsedVariants.at(0) ?? { draft: result.draft, label: "Draft 1", subject: payload.composeSubject || "Draft email" };
+      const response: DraftResponsePayload = {
+        draft: selected.draft,
+        subject: selected.subject,
+        variants: parsedVariants.length ? parsedVariants : [selected],
+        selectedVariantIndex: 0,
+        effectiveGleanMode: result.effectiveMode,
+        overwriteBehavior: config.replySettings.overwriteBehavior,
+        summary: selected.subject ? "Drafted a new email with subject \"" + selected.subject + "\" using " + result.effectiveMode + " mode." : "Drafted a new email using " + result.effectiveMode + " mode.",
+        requestId,
+        warnings: [],
+      };
+
+      console.info("new_email_draft_succeeded", {
+        requestId,
+        latencyMs: Date.now() - startedAt,
+      });
+      res.json(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "New email draft generation failed.";
+      console.warn("new_email_draft_failed", {
+        requestId,
+        latencyMs: Date.now() - startedAt,
+        error: message,
+      });
+      const friendlyMessage = isGleanAuthError(message) ? getGleanAuthErrorMessage() : message;
+      const body: DraftErrorPayload = { error: friendlyMessage, requestId };
+      res.status(isGleanAuthError(message) ? 401 : message.includes("timed out") ? 504 : 502).json(body);
+    }
+  });
+
   return app;
 }
 
@@ -196,6 +261,29 @@ function hasSchedulingIntent(payload: ValidDraftRequest) {
     payload.currentDraft,
     ...payload.messages.map((message) => message.bodyText),
   ]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+
+  return /\b(schedule|scheduling|calendar|available|availability|free|busy|meet|meeting|call|sync|slot|slots|time|times|tomorrow|today|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|am|pm)\b/.test(text);
+}
+
+function parseNewEmailDraft(value: string, fallbackSubject?: string) {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  const subjectMatch = normalized.match(/^\s*Subject\s*:\s*(.+)$/im);
+  const bodyMatch = normalized.match(/^\s*Body\s*:\s*\n?([\s\S]*)$/im);
+  const subject = cleanGeneratedSubject(subjectMatch?.[1]) || fallbackSubject || "Draft email";
+  let body = bodyMatch?.[1]?.trim() || normalized;
+  body = body.replace(/^\s*Subject\s*:.+$/im, "").replace(/^\s*Body\s*:\s*/im, "").trim();
+  return { subject, body };
+}
+
+function cleanGeneratedSubject(value: string | undefined) {
+  return value?.replace(/^"|"$/g, "").trim();
+}
+
+function hasNewEmailSchedulingIntent(payload: ValidNewEmailRequest) {
+  const text = [payload.composeSubject, payload.userInstruction, payload.currentDraft]
     .filter(Boolean)
     .join("\n")
     .toLowerCase();

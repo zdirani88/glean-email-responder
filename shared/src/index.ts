@@ -50,13 +50,28 @@ export interface DraftRequestPayload {
   clientRequestId: string;
 }
 
+export interface NewEmailRequestPayload {
+  composeSubject?: string;
+  recipientsVisible: string[];
+  currentUser?: EmailParticipant;
+  userInstruction: string;
+  currentDraft?: string;
+  clientTimezone?: string;
+  activeComposerDetected: boolean;
+  pageUrl: string;
+  timestamp: string;
+  clientRequestId: string;
+}
+
 export interface DraftVariant {
   draft: string;
   label: string;
+  subject?: string;
 }
 
 export interface DraftResponsePayload {
   draft: string;
+  subject?: string;
   variants: DraftVariant[];
   selectedVariantIndex: number;
   effectiveGleanMode: EffectiveGleanMode;

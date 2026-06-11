@@ -1,4 +1,4 @@
-import type { DraftRequestPayload, DraftResponsePayload } from "@gmail-glean-reply-drafter/shared";
+import type { DraftRequestPayload, DraftResponsePayload, NewEmailRequestPayload } from "@gmail-glean-reply-drafter/shared";
 
 export interface ExtensionConfig {
   backendBaseUrl: string;
@@ -10,7 +10,8 @@ export type ContentMessage =
   | { type: "DRAFT_REPLY_FROM_UI" };
 
 export type BackgroundMessage =
-  | { type: "REQUEST_DRAFT"; payload: DraftRequestPayload };
+  | { type: "REQUEST_DRAFT"; payload: DraftRequestPayload }
+  | { type: "REQUEST_NEW_EMAIL_DRAFT"; payload: NewEmailRequestPayload };
 
 export type BackgroundResponse =
   | { ok: true; data: DraftResponsePayload }

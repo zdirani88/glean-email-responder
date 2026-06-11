@@ -29,4 +29,23 @@ export const draftRequestSchema = z.object({
   clientRequestId: z.string().min(1),
 });
 
+export const newEmailRequestSchema = z.object({
+  composeSubject: z.string().max(500).optional(),
+  recipientsVisible: z.array(z.string().max(500)).default([]),
+  currentUser: z
+    .object({
+      name: z.string().optional(),
+      email: z.string().optional(),
+    })
+    .optional(),
+  userInstruction: z.string().trim().min(1, "Describe what this new email should accomplish.").max(3000),
+  currentDraft: z.string().max(10000).optional(),
+  clientTimezone: z.string().max(100).optional(),
+  activeComposerDetected: z.boolean(),
+  pageUrl: z.string(),
+  timestamp: z.string(),
+  clientRequestId: z.string().min(1),
+});
+
 export type ValidDraftRequest = z.infer<typeof draftRequestSchema>;
+export type ValidNewEmailRequest = z.infer<typeof newEmailRequestSchema>;

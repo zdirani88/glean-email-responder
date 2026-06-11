@@ -1,5 +1,5 @@
 import type { ReplySettings } from "@gmail-glean-reply-drafter/shared";
-import type { ValidDraftRequest } from "./schema.js";
+import type { ValidDraftRequest, ValidNewEmailRequest } from "./schema.js";
 
 export function buildReplyPrompt(payload: ValidDraftRequest, settings: ReplySettings) {
   const selectedMessages = selectMessages(payload, settings);
@@ -134,4 +134,51 @@ function formatLength(settings: ReplySettings) {
 function formatWritingPreferences(settings: ReplySettings) {
   const value = settings.writingPreferences.trim();
   return value || "Do not use em dashes. Write concise, warm, direct replies.";
+}
+
+export function buildNewEmailPrompt(payload: ValidNewEmailRequest, settings: ReplySettings) {
+  return `You are drafting a brand-new outbound email for ${formatNewEmailUser(payload)}.
+
+There is no existing email thread. Build the email from the user instruction, current compose fields, and any typed draft only. If important facts are missing, use clear placeholders instead of inventing them.
+
+Voice:
+${formatVoice(settings)}
+
+Length:
+${formatLength(settings)}
+
+Personal writing preferences:
+${formatWritingPreferences(settings)}
+
+Rules:
+- Return only the sendable email in this exact format:
+Subject: <subject line>
+Body:
+<email body>
+- Do not include working notes, analysis, markdown fences, or alternatives.
+- Do not invent meetings, numbers, prices, approvals, customer facts, attachments, dates, deadlines, or commitments.
+- Preserve any user-entered subject unless the user asks to improve it or it is empty.
+- Preserve the meaning of any current draft body. Improve it only according to the user instruction.
+- If recipient context is thin, keep the email generally useful and avoid specific claims.
+- Never use em dashes. Replace em dashes with commas, periods, colons, semicolons, or parentheses.
+
+User instruction:
+${payload.userInstruction}
+
+Current subject in compose:
+${payload.composeSubject || "(empty)"}
+
+Visible recipients:
+${payload.recipientsVisible.length ? payload.recipientsVisible.join(", ") : "(none visible)"}
+
+Current draft body in compose:
+${payload.currentDraft || "(empty)"}
+`;
+}
+
+function formatNewEmailUser(payload: ValidNewEmailRequest) {
+  const name = payload.currentUser?.name;
+  const email = payload.currentUser?.email;
+  if (name && email) return `${name} <${email}>`;
+  return name || email || "the user";
 }

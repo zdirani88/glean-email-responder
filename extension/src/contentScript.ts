@@ -1,10 +1,11 @@
 import type { BackgroundResponse, ContentMessage } from "./types";
-import type { DraftRequestPayload, DraftResponsePayload, DraftVariant } from "@gmail-glean-reply-drafter/shared";
+import type { DraftRequestPayload, DraftResponsePayload, DraftVariant, NewEmailRequestPayload } from "@gmail-glean-reply-drafter/shared";
 import {
   extractVisibleThreadForActiveComposer,
   findActiveComposer,
   getComposerRoot,
-  insertDraft,
+  extractNewEmailForActiveComposer,
+  insertNewEmailDraft,
   openEmailAndReplyFromList,
 } from "./gmailAdapter";
 
@@ -12,7 +13,7 @@ let lastComposer: ReturnType<typeof findActiveComposer>;
 let lastDebugState: DebugState | undefined;
 
 interface DebugState {
-  request?: DraftRequestPayload;
+  request?: DraftRequestPayload | NewEmailRequestPayload;
   response?: DraftResponsePayload;
   error?: string;
   selectedVariantIndex?: number;
@@ -41,7 +42,9 @@ async function openDraftPanel() {
   if (existingComposer) {
     lastComposer = existingComposer;
     const ui = renderUi(existingComposer);
-    ui.setReady("Add context, then press Enter or click Draft.");
+    const replyContext = extractVisibleThreadForActiveComposer();
+    ui.setReady(replyContext.ok ? "Add context, then press Enter or click Draft." : "Describe the new email, then press Enter or click Draft.");
+    ui.setPlaceholder(replyContext.ok ? "Add context or revision notes, then press Enter" : "What should this email accomplish?");
     ui.focusInstruction();
     return;
   }
@@ -63,6 +66,7 @@ async function openDraftPanel() {
   lastComposer = composer;
   const ui = renderUi(composer);
   ui.setReady("Add context, then press Enter or click Draft.");
+  ui.setPlaceholder("Add context or revision notes, then press Enter");
   ui.focusInstruction();
 }
 
@@ -83,6 +87,11 @@ async function draftReply(instructionOverride = "") {
       }
       await wait(300);
       void openDraftPanel();
+      return;
+    }
+
+    if (extraction.error.includes("visible message")) {
+      await draftNewEmail(instructionOverride);
       return;
     }
 
@@ -117,9 +126,57 @@ async function draftReply(instructionOverride = "") {
   ui.setDebugState(lastDebugState);
 
   const targetComposer = lastComposer ?? extraction.composer;
-  const variants = response.data.variants?.length ? response.data.variants : [{ draft: response.data.draft, label: "Draft 1" }];
+  const variants = response.data.variants?.length ? response.data.variants : [createFallbackVariant(response.data.draft, response.data.subject)];
   const selectedIndex = response.data.selectedVariantIndex ?? 0;
-  insertDraft(targetComposer, variants[selectedIndex]?.draft ?? response.data.draft, response.data.overwriteBehavior);
+  insertNewEmailDraft(targetComposer, variants[selectedIndex]?.draft ?? response.data.draft, variants[selectedIndex]?.subject ?? response.data.subject, response.data.overwriteBehavior);
+  ui.setSuccess(response.data.summary);
+  ui.setVariants(variants, targetComposer, selectedIndex);
+}
+
+async function draftNewEmail(instructionOverride = "") {
+  const existingComposer = findActiveComposer();
+  const userInstruction = combineInstructions(getInstruction(existingComposer), instructionOverride);
+  const extraction = extractNewEmailForActiveComposer({ userInstruction });
+  const composer = extraction.ok ? extraction.composer : extraction.composer ?? findActiveComposer();
+  if (composer) lastComposer = composer;
+
+  if (!extraction.ok) {
+    if (composer) {
+      const ui = renderUi(composer);
+      ui.setPlaceholder("What should this email accomplish?");
+      ui.setError(extraction.error);
+      return;
+    }
+    renderToast(extraction.error);
+    return;
+  }
+
+  const ui = renderUi(extraction.composer);
+  ui.setPlaceholder("What should this email accomplish?");
+  ui.setLoading("Drafting new email with Glean...");
+  lastDebugState = { request: extraction.payload };
+  ui.setDebugState(lastDebugState);
+
+  const response = (await chrome.runtime.sendMessage({
+    type: "REQUEST_NEW_EMAIL_DRAFT",
+    payload: extraction.payload,
+  })) as BackgroundResponse;
+
+  if (!response.ok) {
+    lastDebugState = { request: extraction.payload, error: response.error };
+    ui.setDebugState(lastDebugState);
+    ui.setError(response.error);
+    return;
+  }
+
+  lastDebugState = { request: extraction.payload, response: response.data, selectedVariantIndex: response.data.selectedVariantIndex ?? 0 };
+  ui.setDebugState(lastDebugState);
+
+  const targetComposer = lastComposer ?? extraction.composer;
+  const variants = response.data.variants?.length ? response.data.variants : [createFallbackVariant(response.data.draft, response.data.subject)];
+  const selectedIndex = response.data.selectedVariantIndex ?? 0;
+  const selected = variants[selectedIndex] ?? variants[0];
+  insertNewEmailDraft(targetComposer, selected?.draft ?? response.data.draft, selected?.subject ?? response.data.subject, response.data.overwriteBehavior);
   ui.setSuccess(response.data.summary);
   ui.setVariants(variants, targetComposer, selectedIndex);
 }
@@ -453,7 +510,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   const nextVariant = el.querySelector<HTMLButtonElement>(".next");
   const requestDebug = el.querySelector<HTMLElement>(".request-debug");
   const responseDebug = el.querySelector<HTMLElement>(".response-debug");
-  let variants: Array<{ draft: string; label: string }> = [];
+  let variants: DraftVariant[] = [];
   let selectedVariantIndex = 0;
   let variantComposer: ReturnType<typeof findActiveComposer> | undefined;
   const applyVariant = (nextIndex: number) => {
@@ -461,7 +518,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
     selectedVariantIndex = (nextIndex + variants.length) % variants.length;
     const selectedVariant = variants[selectedVariantIndex];
     if (!selectedVariant) return;
-    insertDraft(variantComposer, selectedVariant.draft, "replace");
+    insertNewEmailDraft(variantComposer, selectedVariant.draft, selectedVariant.subject, "replace");
     if (variantCount) variantCount.textContent = `${selectedVariant.label} of ${variants.length}`;
     if (lastDebugState) lastDebugState.selectedVariantIndex = selectedVariantIndex;
     renderDebugState(requestDebug, responseDebug, lastDebugState);
@@ -473,6 +530,9 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
     focusInstruction() {
       instruction?.focus();
       instruction?.setSelectionRange(instruction.value.length, instruction.value.length);
+    },
+    setPlaceholder(text: string) {
+      if (instruction) instruction.placeholder = text;
     },
     setReady(text: string) {
       el.classList.remove("error", "loading");
@@ -533,6 +593,12 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   };
 }
 
+function createFallbackVariant(draft: string, subject?: string): DraftVariant {
+  const variant: DraftVariant = { draft, label: "Draft 1" };
+  if (subject) variant.subject = subject;
+  return variant;
+}
+
 function combineInstructions(primary: string, override: string) {
   return [primary.trim(), override.trim()].filter(Boolean).join("\n\nAdditional revision request:\n");
 }
@@ -564,7 +630,7 @@ function formatDebugState(state: DebugState | undefined) {
   }, null, 2);
 }
 
-function redactDebugPayload(payload: DraftRequestPayload) {
+function redactDebugPayload(payload: DraftRequestPayload | NewEmailRequestPayload) {
   return {
     ...payload,
     pageUrl: payload.pageUrl.replace(/[#?].*$/, ""),

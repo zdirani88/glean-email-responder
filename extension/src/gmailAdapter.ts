@@ -1,4 +1,4 @@
-import type { DraftRequestPayload, ExtractedMessage } from "@gmail-glean-reply-drafter/shared";
+import type { DraftRequestPayload, ExtractedMessage, NewEmailRequestPayload } from "@gmail-glean-reply-drafter/shared";
 
 interface ComposerTarget {
   editor: HTMLElement;
@@ -19,6 +19,18 @@ export interface ExtractionFailure {
 
 export interface ExtractionOptions {
   userInstruction?: string;
+}
+
+export interface NewEmailExtractionResult {
+  ok: true;
+  payload: NewEmailRequestPayload;
+  composer: ComposerTarget;
+}
+
+export interface NewEmailExtractionFailure {
+  ok: false;
+  error: string;
+  composer?: ComposerTarget;
 }
 
 interface OpenEmailResult {
@@ -67,6 +79,41 @@ export function extractVisibleThreadForActiveComposer(options: ExtractionOptions
   if (composerText && !isProgressComposerText(composerText)) payload.currentDraft = composerText;
 
   return { ok: true, payload, composer };
+}
+
+export function extractNewEmailForActiveComposer(options: ExtractionOptions = {}): NewEmailExtractionResult | NewEmailExtractionFailure {
+  const composer = findActiveComposer();
+  if (!composer) {
+    return { ok: false, error: "Open a new Gmail compose window and place your cursor in the body first." };
+  }
+
+  const userInstruction = options.userInstruction?.trim() ?? "";
+  const composerText = getComposerText(composer.editor).trim();
+  if (!userInstruction && !composerText) {
+    return { ok: false, error: "Describe what this new email should accomplish, then click Draft.", composer };
+  }
+
+  const payload: NewEmailRequestPayload = {
+    composeSubject: extractComposeSubject(composer),
+    recipientsVisible: extractComposeRecipients(composer),
+    userInstruction: userInstruction || "Finish and polish the current draft into a sendable new email.",
+    activeComposerDetected: true,
+    pageUrl: location.href,
+    timestamp: new Date().toISOString(),
+    clientRequestId: crypto.randomUUID(),
+  };
+  const currentUser = inferCurrentUser();
+  const timezone = inferClientTimezone();
+  if (currentUser) payload.currentUser = currentUser;
+  if (timezone) payload.clientTimezone = timezone;
+  if (composerText && !isProgressComposerText(composerText)) payload.currentDraft = composerText;
+
+  return { ok: true, payload, composer };
+}
+
+export function insertNewEmailDraft(composer: ComposerTarget, draft: string, subject?: string, mode: "replace" | "append" = "replace") {
+  if (subject?.trim()) insertComposeSubject(composer, subject.trim());
+  insertDraft(composer, draft, mode);
 }
 
 export function insertDraft(composer: ComposerTarget, draft: string, mode: "replace" | "append" = "replace") {
@@ -331,4 +378,34 @@ function isVisible(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
   const style = getComputedStyle(element);
   return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+}
+
+function extractComposeSubject(composer: ComposerTarget) {
+  const input = composer.root.querySelector<HTMLInputElement>("input[name='subjectbox'], input[aria-label='Subject']");
+  return normalizeText(input?.value ?? "");
+}
+
+function insertComposeSubject(composer: ComposerTarget, subject: string) {
+  const input = composer.root.querySelector<HTMLInputElement>("input[name='subjectbox'], input[aria-label='Subject']");
+  if (!input) return;
+  input.focus();
+  input.value = subject;
+  input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: subject }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function extractComposeRecipients(composer: ComposerTarget) {
+  const values = Array.from(composer.root.querySelectorAll<HTMLElement>("[email], [data-hovercard-id], [aria-label*='@'], textarea[name='to'], textarea[name='cc'], textarea[name='bcc']"))
+    .flatMap((node) => [
+      node.getAttribute("email"),
+      node.getAttribute("data-hovercard-id"),
+      node.getAttribute("aria-label"),
+      node instanceof HTMLTextAreaElement ? node.value : undefined,
+      node.innerText,
+    ])
+    .map((value) => normalizeText(value ?? ""))
+    .filter((value) => value.includes("@") || value.length > 1)
+    .map((value) => value.replace(/^To:\s*/i, "").replace(/^Cc:\s*/i, "").replace(/^Bcc:\s*/i, ""));
+
+  return Array.from(new Set(values)).slice(0, 12);
 }
