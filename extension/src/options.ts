@@ -22,7 +22,7 @@ async function restore() {
   if (paired) {
     await chrome.storage.local.set(paired);
     history.replaceState(null, "", location.pathname);
-    if (statusEl) statusEl.textContent = "Paired with Gmail Glean Helper.";
+    await confirmPairing(paired);
   }
 
   const stored = await chrome.storage.local.get(["backendBaseUrl", "backendSecret"]);
@@ -51,6 +51,28 @@ function readPairingPayload(): ExtensionConfig | undefined {
   } catch {
     if (statusEl) statusEl.textContent = "Pairing link was invalid.";
     return undefined;
+  }
+}
+
+async function confirmPairing(config: ExtensionConfig) {
+  try {
+    const res = await fetch(`${config.backendBaseUrl.replace(/\/$/, "")}/pairing-confirmed`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-backend-secret": config.backendSecret || "",
+      },
+      body: JSON.stringify({ source: "extension-options" }),
+    });
+
+    if (!res.ok) {
+      if (statusEl) statusEl.textContent = "Saved locally, but helper rejected the pairing. Open Gmail Glean Helper and click Pair extension again.";
+      return;
+    }
+
+    if (statusEl) statusEl.textContent = "Paired with Gmail Glean Helper. Reload Gmail before drafting.";
+  } catch {
+    if (statusEl) statusEl.textContent = "Saved locally, but could not reach helper to confirm pairing. Start Gmail Glean Helper, then click Pair extension again.";
   }
 }
 

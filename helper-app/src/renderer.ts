@@ -24,6 +24,7 @@ interface HelperStatus {
   launchAtLogin: boolean;
   extensionPath: string;
   extensionId: string;
+  extensionPairedAt?: string;
   extensionFolderReady: boolean;
   bundledExtensionReady: boolean;
   serverError?: string;
@@ -158,9 +159,16 @@ openExtensionFolderButton?.addEventListener("click", async () => {
 });
 
 pairExtensionButton?.addEventListener("click", async () => {
-  await runAction("Pairing page opened in Chrome. Confirm it saved, then reload Gmail.", async () => {
+  await runAction(undefined, async () => {
     await window.gmailGleanHelper.pairExtension();
-    renderStatus(await window.gmailGleanHelper.getStatus());
+    const status = await waitForPairingConfirmation();
+    renderStatus(status);
+    if (status.extensionPairedAt) {
+      setMessage("Extension pairing confirmed. Reload Gmail before drafting.", "success");
+      return;
+    }
+
+    setMessage("Pairing page opened in Chrome. If the checklist does not turn green, reload the extension and click Pair extension again.", "neutral");
   });
 });
 
@@ -185,6 +193,19 @@ rotateSecretButton?.addEventListener("click", async () => {
 openShortcutsButton?.addEventListener("click", () => {
   void window.gmailGleanHelper.openUrl("chrome://extensions/shortcuts");
 });
+
+async function waitForPairingConfirmation() {
+  let latest = await window.gmailGleanHelper.getStatus();
+  for (let index = 0; index < 20 && !latest.extensionPairedAt; index += 1) {
+    await sleep(500);
+    latest = await window.gmailGleanHelper.getStatus();
+  }
+  return latest;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
 
 async function refreshStatus() {
   try {
@@ -222,7 +243,7 @@ function renderSetup(status: HelperStatus) {
   const tokenReady = status.hasToken;
   const serverReady = status.running;
   const extensionReady = status.extensionFolderReady && status.bundledExtensionReady;
-  const pairReady = status.hasLocalSecret;
+  const pairReady = Boolean(status.hasLocalSecret && status.extensionPairedAt);
   const completed = [tokenReady, serverReady, extensionReady, pairReady].filter(Boolean).length;
   if (setupProgress) setupProgress.style.width = `${Math.round((completed / 4) * 100)}%`;
 
@@ -233,8 +254,24 @@ function renderSetup(status: HelperStatus) {
 
   setHealth(healthBackend, serverReady, "Backend", serverReady ? `Running on localhost:${status.port}` : status.serverError || "Stopped. Click Start helper.");
   setHealth(healthToken, tokenReady, "Glean token", tokenReady ? "Saved in macOS secure storage." : "Missing. Paste a Client API token and save.");
-  setHealth(healthSecret, pairReady, "Pairing secret", pairReady ? "Ready. Pair the extension after install or reload." : "Missing. Rotate pairing secret.");
+  setHealth(
+    healthSecret,
+    pairReady,
+    "Extension pairing",
+    pairReady
+      ? `Confirmed ${formatRelativeTime(status.extensionPairedAt)}`
+      : status.hasLocalSecret
+        ? "Not confirmed. Click Pair extension, then reload Gmail."
+        : "Missing local secret. Rotate pairing secret."
+  );
   setHealth(healthExtension, extensionReady, "Extension folder", extensionReady ? "Latest copy is ready on Desktop." : "Click Refresh extension copy.", status.bundledExtensionReady);
+}
+
+function formatRelativeTime(value: string | undefined) {
+  if (!value) return "recently";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "recently";
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function setStep(element: HTMLElement | null, done: boolean, fallbackLabel: string, available = true) {
@@ -329,14 +366,20 @@ function setMessage(text: string, tone: "neutral" | "success" | "error") {
 function toFriendlyError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || "Something went wrong.");
   const text = raw.toLowerCase();
-  if (text.includes("unauthorized") || text.includes("401") || text.includes("pair")) {
+  if (text.includes("glean token") || text.includes("token problem") || text.includes("please authenticate") || text.includes("authenticate") || text.includes("glean chat 401") || text.includes("glean chat 403")) {
+    return "Glean token problem: paste a fresh Client API token with CHAT and SEARCH scopes, then click Save and start.";
+  }
+  if (text.includes("not paired") || text.includes("pair extension") || text.includes("extension is not paired") || text.includes("pairing problem")) {
     return "Pairing problem: click Pair extension, then reload Gmail and try again.";
   }
   if (text.includes("fetch failed") || text.includes("econnrefused") || text.includes("could not reach")) {
     return "Helper connection problem: click Restart server. If that does not work, quit and reopen Gmail Glean Helper.";
   }
-  if (text.includes("token") || text.includes("403") || text.includes("authenticate")) {
-    return "Glean token problem: paste a fresh Client API token with CHAT and SEARCH scopes, then click Save and start.";
+  if (text.includes("403")) {
+    return "Access problem: check your Glean token scopes, then click Save and start.";
+  }
+  if (text.includes("401")) {
+    return "Authentication problem: click Test Glean. If it fails, replace your Glean token. If it passes, click Pair extension.";
   }
   if (text.includes("timed out") || text.includes("timeout")) {
     return "Glean took too long: increase Timeout in Reply settings, then try again.";

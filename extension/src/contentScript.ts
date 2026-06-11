@@ -21,7 +21,7 @@ interface DebugState {
 
 chrome.runtime.onMessage.addListener((message: ContentMessage) => {
   if (message.type === "DRAFT_REPLY_COMMAND") {
-    void draftReply();
+    void openDraftPanel();
   }
 });
 
@@ -33,8 +33,38 @@ document.addEventListener("keydown", (event) => {
 
   event.preventDefault();
   event.stopPropagation();
-  void draftReply();
+  void openDraftPanel();
 });
+
+async function openDraftPanel() {
+  const existingComposer = findActiveComposer();
+  if (existingComposer) {
+    lastComposer = existingComposer;
+    const ui = renderUi(existingComposer);
+    ui.setReady("Add context, then press Enter or click Draft.");
+    ui.focusInstruction();
+    return;
+  }
+
+  renderToast("Opening the selected email and preparing a reply...");
+  const opened = await openEmailAndReplyFromList();
+  if (!opened.ok) {
+    renderToast(opened.error);
+    return;
+  }
+
+  await wait(300);
+  const composer = findActiveComposer();
+  if (!composer) {
+    renderToast("Reply box is open, but I could not focus it yet. Click the reply box and press the shortcut again.");
+    return;
+  }
+
+  lastComposer = composer;
+  const ui = renderUi(composer);
+  ui.setReady("Add context, then press Enter or click Draft.");
+  ui.focusInstruction();
+}
 
 async function draftReply(instructionOverride = "") {
   const existingComposer = findActiveComposer();
@@ -52,7 +82,7 @@ async function draftReply(instructionOverride = "") {
         return;
       }
       await wait(300);
-      void draftReply();
+      void openDraftPanel();
       return;
     }
 
@@ -365,7 +395,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
         }
       </style>
       <div class="brand"><span class="spark">G</span><span>Glean reply</span></div>
-      <textarea class="instruction" placeholder="Add guidance or revision notes"></textarea>
+      <textarea class="instruction" rows="1" placeholder="Add context or revision notes, then press Enter"></textarea>
       <button type="button" class="draft">Draft</button>
       <button type="button" class="secondary regenerate">Revise</button>
       <button type="button" class="secondary debug-toggle" title="Open debug assistant">Debug</button>
@@ -395,8 +425,14 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       </div>
     `;
     root.prepend(el);
+    const instructionEl = el.querySelector<HTMLTextAreaElement>(".instruction");
     el.querySelector<HTMLButtonElement>(".draft")?.addEventListener("click", () => void draftReply());
     el.querySelector<HTMLButtonElement>(".regenerate")?.addEventListener("click", () => void draftReply());
+    instructionEl?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey) return;
+      event.preventDefault();
+      void draftReply();
+    });
     const uiEl = el;
     el.querySelector<HTMLButtonElement>(".debug-toggle")?.addEventListener("click", () => uiEl.classList.toggle("debug-open"));
     el.querySelector<HTMLButtonElement>(".improve-debug")?.addEventListener("click", () => {
@@ -409,6 +445,8 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
     el.querySelector<HTMLButtonElement>(".close")?.addEventListener("click", () => uiEl.remove());
   }
 
+  const instruction = el.querySelector<HTMLTextAreaElement>(".instruction");
+  const draftButton = el.querySelector<HTMLButtonElement>(".draft");
   const message = el.querySelector<HTMLElement>(".message");
   const variantCount = el.querySelector<HTMLElement>(".variant-count");
   const previousVariant = el.querySelector<HTMLButtonElement>(".previous");
@@ -432,6 +470,17 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   if (nextVariant) nextVariant.onclick = () => applyVariant(selectedVariantIndex + 1);
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
   return {
+    focusInstruction() {
+      instruction?.focus();
+      instruction?.setSelectionRange(instruction.value.length, instruction.value.length);
+    },
+    setReady(text: string) {
+      el.classList.remove("error", "loading");
+      buttons.forEach((button) => {
+        button.disabled = false;
+      });
+      if (message) message.textContent = text;
+    },
     setLoading(text: string) {
       el.classList.remove("error");
       el.classList.add("loading");

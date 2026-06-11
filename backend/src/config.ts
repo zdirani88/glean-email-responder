@@ -10,6 +10,7 @@ export interface AppConfig {
   gleanTimeoutMs: number;
   gleanStubMode: boolean;
   replySettings: ReplySettings;
+  onPairingConfirmed?: () => void | Promise<void>;
 }
 
 export function loadConfig(): AppConfig {

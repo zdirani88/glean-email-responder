@@ -310,7 +310,7 @@
           </div>
           <div id="stepPair" class="setup-step">
             <span class="badge">4</span>
-            <span><strong>Pair extension</strong><small>Authorize the extension to call the helper.</small></span>
+            <span><strong>Pair extension</strong><small>Confirm Chrome saved the helper secret.</small></span>
             <button id="quickPair" type="button" class="mini-button">Pair</button>
           </div>
         </div>
@@ -321,7 +321,7 @@
         <div class="health-grid">
           <div id="healthBackend" class="health-item"><span class="badge">•</span><span><strong>Backend</strong><small>Checking...</small></span></div>
           <div id="healthToken" class="health-item"><span class="badge">•</span><span><strong>Glean token</strong><small>Checking...</small></span></div>
-          <div id="healthSecret" class="health-item"><span class="badge">•</span><span><strong>Pairing secret</strong><small>Checking...</small></span></div>
+          <div id="healthSecret" class="health-item"><span class="badge">•</span><span><strong>Extension pairing</strong><small>Checking...</small></span></div>
           <div id="healthExtension" class="health-item"><span class="badge">•</span><span><strong>Extension folder</strong><small>Checking...</small></span></div>
         </div>
       </section>
@@ -441,7 +441,7 @@
             <li>Enable Developer Mode.</li>
             <li>Click Load unpacked.</li>
             <li>Choose Desktop, then select <code>Gmail Glean Reply Extension</code>. If it is already installed, click the extension reload icon instead.</li>
-            <li>Click <strong>Pair extension</strong> to automatically save the local backend URL and secret. Do this any time you reinstall the app, rotate the secret, or see an Unauthorized error.</li>
+            <li>Click <strong>Pair extension</strong> to save the local backend URL and secret, then wait for the paired confirmation page. Do this any time you reinstall the app, rotate the secret, or see an Unauthorized error.</li>
             <li>Use <code>Cmd+Shift+Y</code> in a Gmail reply.</li>
           </ol>
           <p class="hint" style="margin-top: 10px">Extension install folder: <code id="extensionPath">Checking...</code></p>

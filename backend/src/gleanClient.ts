@@ -56,6 +56,7 @@ export async function draftWithGlean(prompt: string, config: AppConfig, requestS
     .filter(Boolean)
     .filter((text) => !isProgressMessage(text));
   const cleanedDrafts = (assistantDrafts.length ? assistantDrafts : fallbackDrafts)
+    .flatMap(splitDraftOptions)
     .map(cleanDraft)
     .filter(Boolean);
   const variants = toDraftVariants(cleanedDrafts);
@@ -218,6 +219,21 @@ function resolveEffectiveMode(config: AppConfig, stats: { messageCount: number; 
   }
 
   return "fast";
+}
+
+function splitDraftOptions(value: string) {
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  const markerPattern = /(?:^|\n)\s*(?:\*\*)?(?:draft|option|version|reply)\s*(?:#?\d+|[A-C])(?:\s*[-,]\s*[^:\n]+)?\s*[:.)-]\s*(?:\*\*)?/gi;
+  const markers = Array.from(normalized.matchAll(markerPattern));
+  if (markers.length < 2) return [value];
+
+  return markers
+    .map((marker, index) => {
+      const start = marker.index ?? 0;
+      const end = markers[index + 1]?.index ?? normalized.length;
+      return normalized.slice(start, end).replace(marker[0], "").trim();
+    })
+    .filter(Boolean);
 }
 
 function cleanDraft(value: string) {

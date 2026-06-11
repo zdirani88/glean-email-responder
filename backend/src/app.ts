@@ -76,6 +76,11 @@ export function createBackendApp(config: AppConfig) {
     });
   });
 
+  app.post("/pairing-confirmed", async (_req, res) => {
+    await config.onPairingConfirmed?.();
+    res.json({ ok: true });
+  });
+
   app.post("/test-glean-connection", async (req, res) => {
     const parsed = testGleanConnectionSchema.safeParse(req.body);
     if (!parsed.success) {

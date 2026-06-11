@@ -17,6 +17,7 @@ interface HelperConfig {
   encryptedToken?: string;
   encryptedLocalSecret?: string;
   launchAtLogin: boolean;
+  extensionPairedAt?: string;
 }
 
 interface PublicStatus {
@@ -30,6 +31,7 @@ interface PublicStatus {
   launchAtLogin: boolean;
   extensionPath: string;
   extensionId: string;
+  extensionPairedAt?: string;
   extensionFolderReady: boolean;
   bundledExtensionReady: boolean;
   serverError?: string;
@@ -148,6 +150,7 @@ ipcMain.handle("helper:clear-glean-token", async (event) => {
 ipcMain.handle("helper:rotate-local-secret", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
   currentConfig.encryptedLocalSecret = encryptToken(generateLocalSecret());
+  delete currentConfig.extensionPairedAt;
   await saveHelperConfig(currentConfig);
   await restartLocalServerSafely();
   return getPublicStatus();
@@ -232,6 +235,10 @@ function toBackendConfig(config: HelperConfig, token?: string): AppConfig {
 
   if (token) backendConfig.gleanApiToken = token;
   backendConfig.sharedSecret = getLocalSecret(config);
+  backendConfig.onPairingConfirmed = () => {
+    currentConfig = { ...currentConfig, extensionPairedAt: new Date().toISOString() };
+    void saveHelperConfig(currentConfig);
+  };
   return backendConfig;
 }
 
@@ -250,6 +257,7 @@ function getPublicStatus(): PublicStatus {
     extensionFolderReady: existsSync(getInstallableExtensionPath()),
     bundledExtensionReady: existsSync(getBundledExtensionPath()),
   };
+  if (currentConfig.extensionPairedAt) status.extensionPairedAt = currentConfig.extensionPairedAt;
   if (lastServerError) status.serverError = lastServerError;
   return status;
 }

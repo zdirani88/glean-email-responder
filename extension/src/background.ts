@@ -51,12 +51,6 @@ async function requestDraft(payload: BackgroundMessage["payload"]): Promise<Back
 
     const data = await res.json();
     if (!res.ok) {
-      if (res.status === 401) {
-        return {
-          ok: false,
-          error: "Pairing needed: open Gmail Glean Helper, click Pair extension, then reload Gmail and try again.",
-        };
-      }
       return { ok: false, error: toFriendlyBackendError(data.error ?? `Backend returned ${res.status}`, res.status) };
     }
 
@@ -84,7 +78,10 @@ function toFriendlyBackendError(error: string, status: number) {
   const text = error.toLowerCase();
   if (status === 429) return "Too many requests: wait a moment, then try again.";
   if (text.includes("timed out")) return "Glean took too long: open Gmail Glean Helper, increase Timeout, then try again.";
-  if (text.includes("401") || text.includes("403") || text.includes("unauthorized") || text.includes("authenticate") || text.includes("token problem")) return "Glean token problem: open Gmail Glean Helper, paste a fresh Client API token with CHAT and SEARCH scopes, click Save and start, then try again.";
+  if (text.includes("glean token") || text.includes("token problem") || text.includes("please authenticate") || text.includes("glean chat 401") || text.includes("glean chat 403")) return "Glean token problem: open Gmail Glean Helper, paste a fresh Client API token with CHAT and SEARCH scopes, click Save and start, then try again.";
+  if (text.includes("not paired") || text.includes("pair extension") || text.includes("backend secret") || text.includes("extension is not paired")) return "Pairing needed: open Gmail Glean Helper, click Pair extension, then reload Gmail and try again.";
+  if (status === 401) return "Authentication problem: open Gmail Glean Helper, click Test Glean, then Pair extension if the token test passes.";
+  if (status === 403 || text.includes("forbidden")) return "Access problem: check your Glean token scopes and helper setup, then try again.";
   if (text.includes("bad request") || text.includes("400")) return "Glean rejected the request: try again, or switch Response mode to Auto in Gmail Glean Helper.";
   if (text.includes("empty draft")) return "Glean did not return a final draft. Try again with a short guidance note.";
   return error;
