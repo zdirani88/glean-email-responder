@@ -130,6 +130,7 @@ async function draftReply(instructionOverride = "") {
   const selectedIndex = response.data.selectedVariantIndex ?? 0;
   insertNewEmailDraft(targetComposer, variants[selectedIndex]?.draft ?? response.data.draft, variants[selectedIndex]?.subject ?? response.data.subject, response.data.overwriteBehavior);
   ui.setSuccess(response.data.summary);
+  ui.setGroundingState(response.data);
   ui.setVariants(variants, targetComposer, selectedIndex);
 }
 
@@ -178,6 +179,7 @@ async function draftNewEmail(instructionOverride = "") {
   const selected = variants[selectedIndex] ?? variants[0];
   insertNewEmailDraft(targetComposer, selected?.draft ?? response.data.draft, selected?.subject ?? response.data.subject, response.data.overwriteBehavior);
   ui.setSuccess(response.data.summary);
+  ui.setGroundingState(response.data);
   ui.setVariants(variants, targetComposer, selectedIndex);
 }
 
@@ -308,6 +310,44 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
         }
         .ggd-inline-ui.has-draft .variants {
           display: flex;
+        }
+        .ggd-inline-ui .sources {
+          background: #f8fafc;
+          border: 1px solid #e3e7ee;
+          border-radius: 10px;
+          display: none;
+          gap: 8px;
+          grid-column: 1 / -1;
+          padding: 10px;
+        }
+        .ggd-inline-ui.has-draft .sources {
+          display: grid;
+        }
+        .ggd-inline-ui .sources-title {
+          color: #3c4043;
+          font-size: 12px;
+          font-weight: 700;
+        }
+        .ggd-inline-ui .sources-list {
+          display: grid;
+          gap: 6px;
+        }
+        .ggd-inline-ui .source-item {
+          color: #5f6368;
+          font-size: 12px;
+          line-height: 1.35;
+        }
+        .ggd-inline-ui .source-item strong {
+          color: #202124;
+        }
+        .ggd-inline-ui .source-warning {
+          background: #fff8e1;
+          border: 1px solid #f9dc8c;
+          border-radius: 8px;
+          color: #5f4700;
+          font-size: 12px;
+          line-height: 1.35;
+          padding: 8px 10px;
         }
         .ggd-inline-ui .debug-panel {
           background: #f8fafc;
@@ -443,6 +483,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
           }
           .ggd-inline-ui .message,
           .ggd-inline-ui .variants,
+          .ggd-inline-ui .sources,
           .ggd-inline-ui .debug-panel {
             grid-column: 1 / -1;
           }
@@ -466,6 +507,10 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
         <button type="button" class="variant-button previous" title="Previous draft" aria-label="Previous draft">‹</button>
         <span class="variant-count">Draft 1 of 1</span>
         <button type="button" class="variant-button next" title="Next draft" aria-label="Next draft">›</button>
+      </div>
+      <div class="sources" aria-live="polite">
+        <span class="sources-title">Used for this draft</span>
+        <div class="sources-list">No draft yet.</div>
       </div>
       <div class="debug-panel">
         <div class="debug-grid">
@@ -510,6 +555,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   const nextVariant = el.querySelector<HTMLButtonElement>(".next");
   const requestDebug = el.querySelector<HTMLElement>(".request-debug");
   const responseDebug = el.querySelector<HTMLElement>(".response-debug");
+  const sourcesList = el.querySelector<HTMLElement>(".sources-list");
   let variants: DraftVariant[] = [];
   let selectedVariantIndex = 0;
   let variantComposer: ReturnType<typeof findActiveComposer> | undefined;
@@ -570,6 +616,9 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
     setDebugState(state: DebugState) {
       renderDebugState(requestDebug, responseDebug, state);
     },
+    setGroundingState(response: DraftResponsePayload) {
+      renderGroundingState(sourcesList, response);
+    },
     setVariants(nextVariants: DraftVariant[], composerTarget: ReturnType<typeof findActiveComposer>, selectedIndex: number) {
       variants = nextVariants;
       selectedVariantIndex = selectedIndex;
@@ -593,6 +642,17 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   };
 }
 
+function renderGroundingState(element: HTMLElement | null, response: DraftResponsePayload) {
+  if (!element) return;
+  const sourceItems = response.groundingSources.length
+    ? response.groundingSources.map((source) => `<span class="source-item"><strong>${escapeHtml(source.label)}:</strong> ${escapeHtml(source.detail)}</span>`)
+    : ['<span class="source-item">No source details returned.</span>'];
+  const calendar = response.calendarStatus
+    ? `<span class="source-item"><strong>Calendar:</strong> ${escapeHtml(response.calendarStatus.detail)}</span>`
+    : "";
+  const warnings = response.warnings.map((warning) => `<span class="source-warning">${escapeHtml(warning)}</span>`);
+  element.innerHTML = [...sourceItems, calendar, ...warnings].filter(Boolean).join("");
+}
 function createFallbackVariant(draft: string, subject?: string): DraftVariant {
   const variant: DraftVariant = { draft, label: "Draft 1" };
   if (subject) variant.subject = subject;
@@ -612,6 +672,8 @@ function renderDebugState(requestDebug: HTMLElement | null, responseDebug: HTMLE
           effectiveGleanMode: state.response.effectiveGleanMode,
           summary: state.response.summary,
           variants: state.response.variants,
+          groundingSources: state.response.groundingSources,
+          calendarStatus: state.response.calendarStatus,
           warnings: state.response.warnings,
           requestId: state.response.requestId,
         }, null, 2)

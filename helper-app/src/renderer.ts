@@ -33,7 +33,7 @@ interface HelperStatus {
 interface HelperApi {
   getStatus(): Promise<HelperStatus>;
   saveConfig(input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean; gleanTimeoutMs: number; replySettings: ReplySettings }): Promise<HelperStatus>;
-  testGlean(input: { gleanServerUrl: string; token?: string }): Promise<{ ok: true; tokenExpiresAt?: string }>;
+  testGlean(input: { gleanServerUrl: string; token?: string }): Promise<{ ok: true; tokenExpiresAt?: string; tokenScopeHint?: { hasChat: boolean; hasSearch: boolean; hasCalendar: boolean } }>;
   restartServer(): Promise<HelperStatus>;
   openUrl(url: string): Promise<void>;
   openExtensionFolder(): Promise<void>;
@@ -137,7 +137,7 @@ testButton?.addEventListener("click", async () => {
     };
     if (token?.value) input.token = token.value;
     const result = await window.gmailGleanHelper.testGlean(input);
-    setMessage(formatGleanTestSuccess(result.tokenExpiresAt), "success");
+    setMessage(formatGleanTestSuccess(result.tokenExpiresAt, result.tokenScopeHint), "success");
   });
 });
 
@@ -308,8 +308,9 @@ async function runAction(successText: string | undefined, action: () => Promise<
   }
 }
 
-function formatGleanTestSuccess(tokenExpiresAt: string | undefined) {
-  if (!tokenExpiresAt) return "Glean connection works. Token expiration is not available from this token.";
+function formatGleanTestSuccess(tokenExpiresAt: string | undefined, tokenScopeHint?: { hasChat: boolean; hasSearch: boolean; hasCalendar: boolean }) {
+  const scopeText = formatScopeHint(tokenScopeHint);
+  if (!tokenExpiresAt) return "Glean connection works. Token expiration is not available from this token." + scopeText;
 
   const expiresAt = new Date(tokenExpiresAt);
   const days = Math.ceil((expiresAt.getTime() - Date.now()) / 86_400_000);
@@ -318,9 +319,16 @@ function formatGleanTestSuccess(tokenExpiresAt: string | undefined) {
     timeStyle: "short",
   }).format(expiresAt);
 
-  if (days < 0) return `Glean connection works, but this token appears to have expired on ${formatted}.`;
-  if (days === 0) return `Glean connection works. Token expires today at ${formatted}.`;
-  return `Glean connection works. Token expires ${formatted}, in about ${days} day${days === 1 ? "" : "s"}.`;
+  if (days < 0) return `Glean connection works, but this token appears to have expired on ${formatted}.` + scopeText;
+  if (days === 0) return `Glean connection works. Token expires today at ${formatted}.` + scopeText;
+  return `Glean connection works. Token expires ${formatted}, in about ${days} day${days === 1 ? "" : "s"}.` + scopeText;
+}
+
+function formatScopeHint(scopeHint: { hasChat: boolean; hasSearch: boolean; hasCalendar: boolean } | undefined) {
+  if (!scopeHint) return " Calendar action access could not be detected from this token, scheduling will still ask Glean to check availability when possible.";
+  const required = scopeHint.hasChat && scopeHint.hasSearch;
+  const calendar = scopeHint.hasCalendar ? " Calendar scope appears present." : " Calendar scope was not visible in the token. Scheduling drafts can still work if Glean enables the calendar action server-side, but verify suggested times before sending.";
+  return required ? calendar : " CHAT or SEARCH scope was not visible in the token. Create a token with CHAT and SEARCH scopes." + calendar;
 }
 
 function readReplySettings(): ReplySettings {
@@ -367,7 +375,7 @@ function toFriendlyError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || "Something went wrong.");
   const text = raw.toLowerCase();
   if (text.includes("glean token") || text.includes("token problem") || text.includes("please authenticate") || text.includes("authenticate") || text.includes("glean chat 401") || text.includes("glean chat 403")) {
-    return "Glean token problem: paste a fresh Client API token with CHAT and SEARCH scopes, then click Save and start.";
+    return "Glean token problem: paste a fresh Client API token with CHAT and SEARCH scopes. For scheduling, add calendar or Google Calendar scopes if available. Then click Save and Test Glean.";
   }
   if (text.includes("not paired") || text.includes("pair extension") || text.includes("extension is not paired") || text.includes("pairing problem")) {
     return "Pairing problem: click Pair extension, then reload Gmail and try again.";
@@ -376,7 +384,7 @@ function toFriendlyError(error: unknown) {
     return "Helper connection problem: click Restart server. If that does not work, quit and reopen Gmail Glean Helper.";
   }
   if (text.includes("403")) {
-    return "Access problem: check your Glean token scopes, then click Save and start.";
+    return "Access problem: check your Glean token scopes. For scheduling, confirm calendar action access is enabled in Glean. Then click Save and Test Glean.";
   }
   if (text.includes("401")) {
     return "Authentication problem: click Test Glean. If it fails, replace your Glean token. If it passes, click Pair extension.";

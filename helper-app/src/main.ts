@@ -101,7 +101,7 @@ ipcMain.handle("helper:test-glean", async (_event, input: { gleanServerUrl: stri
   const validated = validateTestGleanInput(input);
   const token = validated.token || decryptToken(currentConfig.encryptedToken);
   await testGleanConnection(toBackendConfig({ ...currentConfig, gleanServerUrl: validated.gleanServerUrl }, token));
-  return { ok: true, tokenExpiresAt: getTokenExpiresAt(token) };
+  return { ok: true, tokenExpiresAt: getTokenExpiresAt(token), tokenScopeHint: getTokenScopeHint(token) };
 });
 
 ipcMain.handle("helper:restart-server", async (event) => {
@@ -485,15 +485,42 @@ function normalizeWritingPreferences(value: unknown) {
 
 function getTokenExpiresAt(token: string | undefined) {
   if (!token) return undefined;
-  const parts = token.split(".");
-  if (parts.length < 2 || !parts[1]) return undefined;
+  const payload = decodeJwtPayload(token) as { exp?: unknown } | undefined;
+  if (!payload) return undefined;
 
   try {
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { exp?: unknown };
     if (typeof payload.exp !== "number" || !Number.isFinite(payload.exp)) return undefined;
     const expiresAt = new Date(payload.exp * 1000);
     if (Number.isNaN(expiresAt.getTime())) return undefined;
     return expiresAt.toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
+function getTokenScopeHint(token: string | undefined) {
+  const payload = decodeJwtPayload(token);
+  if (!payload) return undefined;
+  const rawScopes = [payload.scope, payload.scopes, payload.permissions, payload.authorities]
+    .flatMap((value) => Array.isArray(value) ? value : typeof value === "string" ? value.split(/[\s,]+/) : [])
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+  if (!rawScopes.length) return undefined;
+  const normalized = rawScopes.map((scope) => scope.toLowerCase());
+  return {
+    hasChat: normalized.some((scope) => scope.includes("chat")),
+    hasSearch: normalized.some((scope) => scope.includes("search")),
+    hasCalendar: normalized.some((scope) => scope.includes("calendar") || scope.includes("google_calendar") || scope.includes("free_slots")),
+  };
+}
+
+function decodeJwtPayload(token: string | undefined) {
+  if (!token) return undefined;
+  const parts = token.split(".");
+  if (parts.length < 2 || !parts[1]) return undefined;
+
+  try {
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as Record<string, unknown>;
   } catch {
     return undefined;
   }

@@ -63,6 +63,16 @@ export interface NewEmailRequestPayload {
   clientRequestId: string;
 }
 
+export interface GroundingSource {
+  label: string;
+  detail: string;
+}
+
+export interface DraftCalendarStatus {
+  requested: boolean;
+  detail: string;
+}
+
 export interface DraftVariant {
   draft: string;
   label: string;
@@ -77,6 +87,8 @@ export interface DraftResponsePayload {
   effectiveGleanMode: EffectiveGleanMode;
   overwriteBehavior: OverwriteBehavior;
   summary: string;
+  groundingSources: GroundingSource[];
+  calendarStatus?: DraftCalendarStatus;
   requestId: string;
   warnings: string[];
 }

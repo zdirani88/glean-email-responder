@@ -62,7 +62,7 @@ function formatSchedulingInstructions(payload: ValidDraftRequest) {
     "- Scheduling intent detected. Use Glean's Google Calendar Find free slots action, if available, to check the user's real availability.",
     '- Use calendar identifier "primary" unless the email explicitly names another calendar or attendee calendar.',
     `- Interpret dates and times in timezone ${timezone}.`,
-    "- If Glean cannot access calendar availability, say you can check and propose a reasonable next step instead of pretending a slot is available.",
+    "- If Glean cannot access calendar availability or the action is unavailable, state that availability still needs to be confirmed instead of pretending a slot is available.",
     "- Do not create or modify calendar events. Only draft the email reply.",
   ].join("\n");
 }
@@ -150,6 +150,8 @@ ${formatLength(settings)}
 Personal writing preferences:
 ${formatWritingPreferences(settings)}
 
+${formatNewEmailSchedulingInstructions(payload)}
+
 Rules:
 - Return only the sendable email in this exact format:
 Subject: <subject line>
@@ -176,6 +178,30 @@ ${payload.currentDraft || "(empty)"}
 `;
 }
 
+function formatNewEmailSchedulingInstructions(payload: ValidNewEmailRequest) {
+  const timezone = payload.clientTimezone || "America/New_York";
+  if (!hasNewEmailSchedulingIntent(payload)) {
+    return ["Scheduling support:", "- No scheduling intent detected."].join("\n");
+  }
+
+  return [
+    "Scheduling support:",
+    "- Scheduling intent detected. Use Glean's Google Calendar Find free slots action, if available, to check the user's real availability.",
+    '- Use calendar identifier "primary" unless the email explicitly names another calendar or attendee calendar.',
+    `- Interpret dates and times in timezone ${timezone}.`,
+    "- If Glean cannot access calendar availability or the action is unavailable, state that availability still needs to be confirmed instead of pretending a slot is available.",
+    "- Do not create or modify calendar events. Only draft the email.",
+  ].join("\n");
+}
+
+function hasNewEmailSchedulingIntent(payload: ValidNewEmailRequest) {
+  const text = [payload.composeSubject, payload.userInstruction, payload.currentDraft]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+
+  return /\b(schedule|scheduling|calendar|available|availability|free|busy|meet|meeting|call|sync|slot|slots|time|times|tomorrow|today|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|am|pm)\b/.test(text);
+}
 function formatNewEmailUser(payload: ValidNewEmailRequest) {
   const name = payload.currentUser?.name;
   const email = payload.currentUser?.email;
