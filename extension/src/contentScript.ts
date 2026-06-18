@@ -19,6 +19,14 @@ interface DebugState {
   selectedVariantIndex?: number;
 }
 
+interface VariantUiState {
+  variants: DraftVariant[];
+  selectedVariantIndex: number;
+  variantComposer?: ReturnType<typeof findActiveComposer>;
+}
+
+type GgdUiElement = HTMLElement & { __ggdVariantState?: VariantUiState };
+
 
 chrome.runtime.onMessage.addListener((message: ContentMessage) => {
   if (message.type === "DRAFT_REPLY_COMMAND") {
@@ -185,10 +193,10 @@ async function draftNewEmail(instructionOverride = "") {
 
 function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   const root = composer ? getComposerRoot(composer) : document.body;
-  let el = root.querySelector<HTMLElement>(".ggd-inline-ui");
+  let el = root.querySelector<GgdUiElement>(".ggd-inline-ui");
 
   if (!el) {
-    el = document.createElement("div");
+    el = document.createElement("div") as GgdUiElement;
     el.className = "ggd-inline-ui";
     el.innerHTML = `
       <style>
@@ -556,21 +564,19 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   const requestDebug = el.querySelector<HTMLElement>(".request-debug");
   const responseDebug = el.querySelector<HTMLElement>(".response-debug");
   const sourcesList = el.querySelector<HTMLElement>(".sources-list");
-  let variants: DraftVariant[] = [];
-  let selectedVariantIndex = 0;
-  let variantComposer: ReturnType<typeof findActiveComposer> | undefined;
+  const uiState = el.__ggdVariantState ??= { variants: [], selectedVariantIndex: 0 };
   const applyVariant = (nextIndex: number) => {
-    if (!variantComposer || variants.length < 1) return;
-    selectedVariantIndex = (nextIndex + variants.length) % variants.length;
-    const selectedVariant = variants[selectedVariantIndex];
+    if (!uiState.variantComposer || uiState.variants.length < 1) return;
+    uiState.selectedVariantIndex = (nextIndex + uiState.variants.length) % uiState.variants.length;
+    const selectedVariant = uiState.variants[uiState.selectedVariantIndex];
     if (!selectedVariant) return;
-    insertNewEmailDraft(variantComposer, selectedVariant.draft, selectedVariant.subject, "replace");
-    if (variantCount) variantCount.textContent = `${selectedVariant.label} of ${variants.length}`;
-    if (lastDebugState) lastDebugState.selectedVariantIndex = selectedVariantIndex;
+    insertNewEmailDraft(uiState.variantComposer, selectedVariant.draft, selectedVariant.subject, "replace");
+    if (variantCount) variantCount.textContent = `${selectedVariant.label} of ${uiState.variants.length}`;
+    if (lastDebugState) lastDebugState.selectedVariantIndex = uiState.selectedVariantIndex;
     renderDebugState(requestDebug, responseDebug, lastDebugState);
   };
-  if (previousVariant) previousVariant.onclick = () => applyVariant(selectedVariantIndex - 1);
-  if (nextVariant) nextVariant.onclick = () => applyVariant(selectedVariantIndex + 1);
+  if (previousVariant) previousVariant.onclick = () => applyVariant(uiState.selectedVariantIndex - 1);
+  if (nextVariant) nextVariant.onclick = () => applyVariant(uiState.selectedVariantIndex + 1);
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
   return {
     focusInstruction() {
@@ -620,12 +626,12 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
       renderGroundingState(sourcesList, response);
     },
     setVariants(nextVariants: DraftVariant[], composerTarget: ReturnType<typeof findActiveComposer>, selectedIndex: number) {
-      variants = nextVariants;
-      selectedVariantIndex = selectedIndex;
-      variantComposer = composerTarget;
+      uiState.variants = nextVariants;
+      uiState.selectedVariantIndex = Math.min(Math.max(selectedIndex, 0), Math.max(nextVariants.length - 1, 0));
+      uiState.variantComposer = composerTarget;
       el.classList.add("has-draft");
-      el.classList.toggle("has-variants", variants.length > 1);
-      const hasMultipleVariants = variants.length > 1;
+      el.classList.toggle("has-variants", uiState.variants.length > 1);
+      const hasMultipleVariants = uiState.variants.length > 1;
       if (previousVariant) {
         previousVariant.disabled = !hasMultipleVariants;
         previousVariant.title = hasMultipleVariants ? "Previous draft" : "Only one draft returned";
@@ -635,7 +641,7 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
         nextVariant.title = hasMultipleVariants ? "Next draft" : "Only one draft returned";
       }
       if (variantCount) {
-        variantCount.textContent = hasMultipleVariants ? `${variants[selectedVariantIndex]?.label ?? "Draft 1"} of ${variants.length}` : "1 draft returned";
+        variantCount.textContent = hasMultipleVariants ? `${uiState.variants[uiState.selectedVariantIndex]?.label ?? "Draft 1"} of ${uiState.variants.length}` : "1 draft returned";
       }
       renderDebugState(requestDebug, responseDebug, lastDebugState);
     },

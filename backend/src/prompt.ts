@@ -24,8 +24,13 @@ ${formatSchedulingInstructions(payload)}
 Rules:
 - Return only the reply draft body as plain text.
 - Do not include a subject line.
+- The user instruction is private drafting guidance from ${formatUser(payload)}. Use it as the highest-priority intent, but do not quote it verbatim unless it is clearly drafted email text.
+- If the current draft conflicts with the user instruction, rewrite the draft to follow the user instruction.
+- Resolve pronouns and ownership carefully. In user instructions, "me" and "I" usually refer to ${formatUser(payload)}. Do not reverse ownership, for example "point her to me" means route her to ${formatUser(payload)}, not to another recipient.
+- Keep the audience clear. The reply is from ${formatUser(payload)} to the visible thread participants. If the user names people to respond to, address or include them naturally.
+- Preserve named people and relationships from the user instruction. Do not replace a named person with a different recipient unless the thread makes that explicit.
 - Do not invent commitments, dates, attachments, approvals, or facts.
-- If the latest ask cannot be answered from context, write a useful reply that acknowledges the ask and proposes a next step.
+- If the latest ask cannot be answered from context, use the user's instruction to write a useful reply that acknowledges the ask and proposes a next step.
 - Avoid overly formal filler.
 - Never use em dashes. Replace em dashes with commas, periods, colons, semicolons, or parentheses.
 - Do not include working notes, analysis, reasoning, status updates, or alternatives.
