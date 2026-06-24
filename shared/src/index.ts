@@ -79,6 +79,15 @@ export interface DraftVariant {
   subject?: string;
 }
 
+export interface DraftTokenUsage {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+  estimatedCostUsd: number | null;
+  source: "glean" | "estimated";
+  note: string;
+}
+
 export interface DraftResponsePayload {
   draft: string;
   subject?: string;
@@ -89,6 +98,7 @@ export interface DraftResponsePayload {
   summary: string;
   groundingSources: GroundingSource[];
   calendarStatus?: DraftCalendarStatus;
+  tokenUsage?: DraftTokenUsage;
   requestId: string;
   warnings: string[];
 }

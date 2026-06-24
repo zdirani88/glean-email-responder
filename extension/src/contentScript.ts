@@ -656,9 +656,36 @@ function renderGroundingState(element: HTMLElement | null, response: DraftRespon
   const calendar = response.calendarStatus
     ? `<span class="source-item"><strong>Calendar:</strong> ${escapeHtml(response.calendarStatus.detail)}</span>`
     : "";
+  const tokenUsage = response.tokenUsage ? `<span class="source-item"><strong>Tokens:</strong> ${escapeHtml(formatTokenUsage(response.tokenUsage))}</span>` : "";
   const warnings = response.warnings.map((warning) => `<span class="source-warning">${escapeHtml(warning)}</span>`);
-  element.innerHTML = [...sourceItems, calendar, ...warnings].filter(Boolean).join("");
+  element.innerHTML = [...sourceItems, calendar, tokenUsage, ...warnings].filter(Boolean).join("");
 }
+
+function formatTokenUsage(usage: NonNullable<DraftResponsePayload["tokenUsage"]>) {
+  const parts = [
+    `input ${formatTokenCount(usage.inputTokens)}`,
+    `output ${formatTokenCount(usage.outputTokens)}`,
+    `total ${formatTokenCount(usage.totalTokens)}`,
+  ];
+  if (usage.estimatedCostUsd !== null) {
+    parts.push(`cost ${formatUsd(usage.estimatedCostUsd)}`);
+  }
+
+  return `${parts.join(", ")} (${usage.source}). ${usage.note}`;
+}
+
+function formatTokenCount(value: number | null) {
+  return value === null ? "unknown" : Math.round(value).toLocaleString();
+}
+
+function formatUsd(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value < 0.01 ? 6 : 4,
+  }).format(value);
+}
+
 function createFallbackVariant(draft: string, subject?: string): DraftVariant {
   const variant: DraftVariant = { draft, label: "Draft 1" };
   if (subject) variant.subject = subject;
@@ -680,6 +707,7 @@ function renderDebugState(requestDebug: HTMLElement | null, responseDebug: HTMLE
           variants: state.response.variants,
           groundingSources: state.response.groundingSources,
           calendarStatus: state.response.calendarStatus,
+          tokenUsage: state.response.tokenUsage,
           warnings: state.response.warnings,
           requestId: state.response.requestId,
         }, null, 2)

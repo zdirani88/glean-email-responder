@@ -151,6 +151,7 @@ export function createBackendApp(config: AppConfig) {
         summary: `Drafted from ${payload.messages.length} visible message${payload.messages.length === 1 ? "" : "s"} using ${result.effectiveMode} mode.`,
         groundingSources: buildReplyGroundingSources(payload, schedulingIntent, result.effectiveMode),
         calendarStatus: buildCalendarStatus(schedulingIntent),
+        tokenUsage: result.tokenUsage,
         requestId,
         warnings: buildDraftWarnings(schedulingIntent),
       };
@@ -159,6 +160,7 @@ export function createBackendApp(config: AppConfig) {
         requestId,
         latencyMs: Date.now() - startedAt,
         visibleMessageCount: payload.messages.length,
+        tokenUsage: result.tokenUsage,
       });
       res.json(response);
     } catch (error) {
@@ -220,6 +222,7 @@ export function createBackendApp(config: AppConfig) {
         summary: selected.subject ? "Drafted a new email with subject \"" + selected.subject + "\" using " + result.effectiveMode + " mode." : "Drafted a new email using " + result.effectiveMode + " mode.",
         groundingSources: buildNewEmailGroundingSources(payload, schedulingIntent, result.effectiveMode),
         calendarStatus: buildCalendarStatus(schedulingIntent),
+        tokenUsage: result.tokenUsage,
         requestId,
         warnings: buildDraftWarnings(schedulingIntent),
       };
@@ -227,6 +230,7 @@ export function createBackendApp(config: AppConfig) {
       console.info("new_email_draft_succeeded", {
         requestId,
         latencyMs: Date.now() - startedAt,
+        tokenUsage: result.tokenUsage,
       });
       res.json(response);
     } catch (error) {

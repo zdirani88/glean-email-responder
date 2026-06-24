@@ -1,4 +1,4 @@
-import type { DraftVariant, EffectiveGleanMode } from "@gmail-glean-reply-drafter/shared";
+import type { DraftTokenUsage, DraftVariant, EffectiveGleanMode } from "@gmail-glean-reply-drafter/shared";
 import type { AppConfig } from "./config.js";
 
 interface GleanChatMessage {
@@ -12,12 +12,24 @@ interface GleanChatMessage {
 interface GleanChatResponse {
   messages?: GleanChatMessage[];
   followUpResults?: GleanChatMessage[];
+  usage?: unknown;
+  tokenUsage?: unknown;
+  usageMetadata?: unknown;
+  metadata?: {
+    usage?: unknown;
+    tokenUsage?: unknown;
+  };
+  responseMetadata?: {
+    usage?: unknown;
+    tokenUsage?: unknown;
+  };
 }
 
 export interface GleanDraftResult {
   draft: string;
   variants: DraftVariant[];
   effectiveMode: EffectiveGleanMode;
+  tokenUsage: DraftTokenUsage;
 }
 
 export async function draftWithGlean(prompt: string, config: AppConfig, requestStats: { messageCount: number; totalBodyChars: number; userInstructionChars: number; schedulingIntent?: boolean }): Promise<GleanDraftResult> {
@@ -30,7 +42,7 @@ export async function draftWithGlean(prompt: string, config: AppConfig, requestS
       "",
       "Best,",
     ].join("\n");
-    return { draft, variants: [{ draft, label: "Draft 1" }], effectiveMode };
+    return { draft, variants: [{ draft, label: "Draft 1" }], effectiveMode, tokenUsage: estimateTokenUsage(prompt, draft) };
   }
 
   if (!config.gleanServerUrl || !config.gleanApiToken) {
@@ -66,7 +78,7 @@ export async function draftWithGlean(prompt: string, config: AppConfig, requestS
     throw new Error("Glean returned an empty draft.");
   }
 
-  return { draft, variants, effectiveMode };
+  return { draft, variants, effectiveMode, tokenUsage: extractTokenUsage(data) ?? estimateTokenUsage(prompt, draft) };
 }
 
 async function sendChatRequest(chatUrl: string, prompt: string, config: AppConfig, effectiveMode: EffectiveGleanMode) {
@@ -257,4 +269,82 @@ function toDraftVariants(values: string[]): DraftVariant[] {
     })
     .slice(0, 5)
     .map((draft, index) => ({ draft, label: "Draft " + (index + 1) }));
+}
+
+function extractTokenUsage(response: GleanChatResponse): DraftTokenUsage | undefined {
+  const candidates = [
+    response.usage,
+    response.tokenUsage,
+    response.usageMetadata,
+    response.metadata?.usage,
+    response.metadata?.tokenUsage,
+    response.responseMetadata?.usage,
+    response.responseMetadata?.tokenUsage,
+  ];
+
+  for (const candidate of candidates) {
+    const usage = normalizeTokenUsage(candidate);
+    if (usage) return usage;
+  }
+
+  return undefined;
+}
+
+function normalizeTokenUsage(value: unknown): DraftTokenUsage | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const inputTokens = readNumberField(value, ["inputTokens", "input_tokens", "promptTokens", "prompt_tokens", "requestTokens", "request_tokens"]);
+  const outputTokens = readNumberField(value, ["outputTokens", "output_tokens", "completionTokens", "completion_tokens", "generatedTokens", "generated_tokens", "responseTokens", "response_tokens"]);
+  const suppliedTotalTokens = readNumberField(value, ["totalTokens", "total_tokens", "tokens"]);
+  const totalTokens = suppliedTotalTokens ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null);
+  const estimatedCostUsd = readNumberField(value, ["estimatedCostUsd", "estimated_cost_usd", "costUsd", "cost_usd", "totalCostUsd", "total_cost_usd"]);
+
+  if (inputTokens === null && outputTokens === null && totalTokens === null && estimatedCostUsd === null) {
+    return undefined;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    estimatedCostUsd,
+    source: "glean",
+    note: estimatedCostUsd === null ? "Glean returned token usage metadata without cost metadata." : "Glean returned token usage metadata.",
+  };
+}
+
+function estimateTokenUsage(prompt: string, draft: string): DraftTokenUsage {
+  const inputTokens = Math.ceil(prompt.length / 4);
+  const outputTokens = Math.ceil(draft.length / 4);
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: inputTokens + outputTokens,
+    estimatedCostUsd: null,
+    source: "estimated",
+    note: "Glean did not return token usage metadata, so this is an approximate count based on text length.",
+  };
+}
+
+function readNumberField(record: Record<string, unknown>, fieldNames: string[]) {
+  for (const fieldName of fieldNames) {
+    const normalized = normalizeNumber(record[fieldName]);
+    if (normalized !== null) return normalized;
+  }
+
+  return null;
+}
+
+function normalizeNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
