@@ -63,6 +63,22 @@ export interface NewEmailRequestPayload {
   clientRequestId: string;
 }
 
+export interface SlackDraftRequestPayload {
+  workspaceName?: string;
+  channelName?: string;
+  threadTitle?: string;
+  participantsVisible: string[];
+  currentUser?: EmailParticipant;
+  messages: ExtractedMessage[];
+  userInstruction?: string;
+  currentDraft?: string;
+  clientTimezone?: string;
+  activeComposerDetected: boolean;
+  pageUrl: string;
+  timestamp: string;
+  clientRequestId: string;
+}
+
 export interface GroundingSource {
   label: string;
   detail: string;

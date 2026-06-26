@@ -1,4 +1,4 @@
-import type { DraftRequestPayload, DraftResponsePayload, NewEmailRequestPayload } from "@gmail-glean-reply-drafter/shared";
+import type { DraftRequestPayload, DraftResponsePayload, NewEmailRequestPayload, SlackDraftRequestPayload } from "@gmail-glean-reply-drafter/shared";
 
 export interface ExtensionConfig {
   backendBaseUrl: string;
@@ -11,7 +11,8 @@ export type ContentMessage =
 
 export type BackgroundMessage =
   | { type: "REQUEST_DRAFT"; payload: DraftRequestPayload }
-  | { type: "REQUEST_NEW_EMAIL_DRAFT"; payload: NewEmailRequestPayload };
+  | { type: "REQUEST_NEW_EMAIL_DRAFT"; payload: NewEmailRequestPayload }
+  | { type: "REQUEST_SLACK_DRAFT"; payload: SlackDraftRequestPayload };
 
 export type BackgroundResponse =
   | { ok: true; data: DraftResponsePayload }

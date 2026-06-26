@@ -5,8 +5,8 @@ import { z } from "zod";
 import type { DraftCalendarStatus, DraftErrorPayload, DraftResponsePayload, GroundingSource } from "@gmail-glean-reply-drafter/shared";
 import type { AppConfig } from "./config.js";
 import { draftWithGlean, testGleanConnection } from "./gleanClient.js";
-import { buildNewEmailPrompt, buildReplyPrompt } from "./prompt.js";
-import { draftRequestSchema, newEmailRequestSchema, type ValidDraftRequest, type ValidNewEmailRequest } from "./schema.js";
+import { buildNewEmailPrompt, buildReplyPrompt, buildSlackReplyPrompt, hasSlackSchedulingIntent } from "./prompt.js";
+import { draftRequestSchema, newEmailRequestSchema, slackDraftRequestSchema, type ValidDraftRequest, type ValidNewEmailRequest, type ValidSlackDraftRequest } from "./schema.js";
 
 const testGleanConnectionSchema = z.object({
   gleanServerUrl: z.string().url().optional(),
@@ -246,6 +246,71 @@ export function createBackendApp(config: AppConfig) {
     }
   });
 
+  app.post("/draft-slack-reply", async (req, res) => {
+    const startedAt = Date.now();
+    const requestId = req.body?.clientRequestId || crypto.randomUUID();
+
+    const parsed = slackDraftRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const body: DraftErrorPayload = {
+        error: "Invalid Slack draft request payload.",
+        requestId,
+        warnings: parsed.error.issues.map((issue) => issue.message),
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    const payload = parsed.data;
+    console.info("slack_draft_started", {
+      requestId,
+      channelName: payload.channelName,
+      visibleMessageCount: payload.messages.length,
+    });
+
+    try {
+      const schedulingIntent = hasSlackSchedulingIntent(payload);
+      const prompt = buildSlackReplyPrompt(payload, config.replySettings);
+      const result = await draftWithGlean(prompt, config, {
+        messageCount: payload.messages.length,
+        totalBodyChars: payload.messages.reduce((total, message) => total + message.bodyText.length, 0),
+        userInstructionChars: payload.userInstruction?.length ?? 0,
+        schedulingIntent,
+      });
+      const response: DraftResponsePayload = {
+        draft: result.draft,
+        variants: result.variants,
+        selectedVariantIndex: 0,
+        effectiveGleanMode: result.effectiveMode,
+        overwriteBehavior: config.replySettings.overwriteBehavior,
+        summary: `Drafted from ${payload.messages.length} visible Slack message${payload.messages.length === 1 ? "" : "s"} using ${result.effectiveMode} mode.`,
+        groundingSources: buildSlackGroundingSources(payload, schedulingIntent, result.effectiveMode),
+        calendarStatus: buildCalendarStatus(schedulingIntent),
+        tokenUsage: result.tokenUsage,
+        requestId,
+        warnings: buildDraftWarnings(schedulingIntent),
+      };
+
+      console.info("slack_draft_succeeded", {
+        requestId,
+        latencyMs: Date.now() - startedAt,
+        visibleMessageCount: payload.messages.length,
+        tokenUsage: result.tokenUsage,
+      });
+      res.json(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Slack draft generation failed.";
+      console.warn("slack_draft_failed", {
+        requestId,
+        latencyMs: Date.now() - startedAt,
+        error: message,
+      });
+      const friendlyMessage = toFriendlyDraftError(message);
+      const body: DraftErrorPayload = { error: friendlyMessage, requestId };
+      res.status(isGleanAuthError(message) ? 401 : message.includes("timed out") ? 504 : 502).json(body);
+    }
+  });
+
   return app;
 }
 
@@ -337,6 +402,18 @@ function buildNewEmailGroundingSources(payload: ValidNewEmailRequest, scheduling
   if (payload.composeSubject) sources.push({ label: "Subject field", detail: "The current Gmail subject was included." });
   if (payload.currentDraft) sources.push({ label: "Current draft", detail: "Existing text in the compose body was used as draft context." });
   if (payload.recipientsVisible.length) sources.push({ label: "Visible recipients", detail: `${payload.recipientsVisible.length} visible recipient${payload.recipientsVisible.length === 1 ? "" : "s"} were included.` });
+  sources.push({ label: "Glean mode", detail: effectiveMode === "thinking" ? "Thinking mode was used for deeper reasoning." : "Fast mode was used for a quick draft." });
+  if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through Glean's Google Calendar/free-slots action if your token and Glean tenant support it." });
+  return sources;
+}
+
+function buildSlackGroundingSources(payload: ValidSlackDraftRequest, schedulingIntent: boolean, effectiveMode: string): GroundingSource[] {
+  const sources: GroundingSource[] = [
+    { label: "Visible Slack context", detail: `${payload.messages.length} visible message${payload.messages.length === 1 ? "" : "s"} extracted from the current Slack view.` },
+  ];
+  if (payload.channelName) sources.push({ label: "Slack channel", detail: payload.channelName });
+  if (payload.currentDraft) sources.push({ label: "Current draft", detail: "Existing text in the Slack composer was used as draft context." });
+  if (payload.userInstruction) sources.push({ label: "User instruction", detail: "The note typed in the Glean panel was included." });
   sources.push({ label: "Glean mode", detail: effectiveMode === "thinking" ? "Thinking mode was used for deeper reasoning." : "Fast mode was used for a quick draft." });
   if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through Glean's Google Calendar/free-slots action if your token and Glean tenant support it." });
   return sources;

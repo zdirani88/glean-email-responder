@@ -12,7 +12,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 chrome.commands.onCommand.addListener(async (command, tab) => {
-  if (command !== "draft-reply" || !tab?.id || !tab.url?.startsWith("https://mail.google.com/")) {
+  if (command !== "draft-reply" || !tab?.id || !isSupportedDraftUrl(tab.url)) {
     return;
   }
 
@@ -27,15 +27,15 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendResponse) => {
-  if (message.type !== "REQUEST_DRAFT" && message.type !== "REQUEST_NEW_EMAIL_DRAFT") {
+  if (message.type !== "REQUEST_DRAFT" && message.type !== "REQUEST_NEW_EMAIL_DRAFT" && message.type !== "REQUEST_SLACK_DRAFT") {
     return false;
   }
 
-  requestDraft(message.payload, message.type === "REQUEST_NEW_EMAIL_DRAFT" ? "/draft-new-email" : "/draft-email-reply").then(sendResponse);
+  requestDraft(message.payload, getDraftEndpoint(message.type)).then(sendResponse);
   return true;
 });
 
-async function requestDraft(payload: BackgroundMessage["payload"], endpoint: "/draft-email-reply" | "/draft-new-email"): Promise<BackgroundResponse> {
+async function requestDraft(payload: BackgroundMessage["payload"], endpoint: "/draft-email-reply" | "/draft-new-email" | "/draft-slack-reply"): Promise<BackgroundResponse> {
   const config = await getConfig();
   const baseUrl = config.backendBaseUrl.replace(/\/$/, "");
 
@@ -61,6 +61,16 @@ async function requestDraft(payload: BackgroundMessage["payload"], endpoint: "/d
       error: "Helper not reachable: open Gmail Glean Helper and click Restart server. If needed, quit and reopen the helper app.",
     };
   }
+}
+
+function getDraftEndpoint(type: BackgroundMessage["type"]) {
+  if (type === "REQUEST_NEW_EMAIL_DRAFT") return "/draft-new-email";
+  if (type === "REQUEST_SLACK_DRAFT") return "/draft-slack-reply";
+  return "/draft-email-reply";
+}
+
+function isSupportedDraftUrl(url: string | undefined) {
+  return Boolean(url?.startsWith("https://mail.google.com/") || url?.startsWith("https://app.slack.com/"));
 }
 
 async function getConfig(): Promise<ExtensionConfig> {

@@ -1,19 +1,28 @@
 import type { BackgroundResponse, ContentMessage } from "./types";
-import type { DraftRequestPayload, DraftResponsePayload, DraftVariant, NewEmailRequestPayload } from "@gmail-glean-reply-drafter/shared";
+import type { DraftRequestPayload, DraftResponsePayload, DraftVariant, NewEmailRequestPayload, OverwriteBehavior, SlackDraftRequestPayload } from "@gmail-glean-reply-drafter/shared";
 import {
   extractVisibleThreadForActiveComposer,
   findActiveComposer,
-  getComposerRoot,
+  getComposerDraftText,
   extractNewEmailForActiveComposer,
   insertNewEmailDraft,
   openEmailAndReplyFromList,
 } from "./gmailAdapter";
+import {
+  extractVisibleSlackContextForActiveComposer,
+  findActiveSlackComposer,
+  getSlackComposerDraftText,
+  insertSlackDraft,
+} from "./slackAdapter";
 
-let lastComposer: ReturnType<typeof findActiveComposer>;
+type ComposerTarget = { editor: HTMLElement; root: HTMLElement };
+type DraftSurface = "gmail" | "slack";
+
+let lastComposer: ComposerTarget | undefined;
 let lastDebugState: DebugState | undefined;
 
 interface DebugState {
-  request?: DraftRequestPayload | NewEmailRequestPayload;
+  request?: DraftRequestPayload | NewEmailRequestPayload | SlackDraftRequestPayload;
   response?: DraftResponsePayload;
   error?: string;
   selectedVariantIndex?: number;
@@ -22,7 +31,10 @@ interface DebugState {
 interface VariantUiState {
   variants: DraftVariant[];
   selectedVariantIndex: number;
-  variantComposer?: ReturnType<typeof findActiveComposer>;
+  variantComposer?: ComposerTarget;
+  originalComposerText: string;
+  overwriteBehavior: OverwriteBehavior;
+  surface: DraftSurface;
 }
 
 type GgdUiElement = HTMLElement & { __ggdVariantState?: VariantUiState };
@@ -38,7 +50,7 @@ document.addEventListener("keydown", (event) => {
   const shortcutPressed =
     (event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "y";
 
-  if (!shortcutPressed || !location.hostname.endsWith("mail.google.com")) return;
+  if (!shortcutPressed || (!isGmailSurface() && !isSlackSurface())) return;
 
   event.preventDefault();
   event.stopPropagation();
@@ -46,6 +58,11 @@ document.addEventListener("keydown", (event) => {
 });
 
 async function openDraftPanel() {
+  if (isSlackSurface()) {
+    openSlackDraftPanel();
+    return;
+  }
+
   const existingComposer = findActiveComposer();
   if (existingComposer) {
     lastComposer = existingComposer;
@@ -78,7 +95,26 @@ async function openDraftPanel() {
   ui.focusInstruction();
 }
 
+function openSlackDraftPanel() {
+  const composer = findActiveSlackComposer();
+  if (!composer) {
+    renderToast("Open a Slack message box or thread reply box, then press the shortcut again.");
+    return;
+  }
+
+  lastComposer = composer;
+  const ui = renderUi(composer);
+  ui.setReady("Add context, then press Enter or click Draft.");
+  ui.setPlaceholder("Add context or revision notes, then press Enter");
+  ui.focusInstruction();
+}
+
 async function draftReply(instructionOverride = "") {
+  if (isSlackSurface()) {
+    await draftSlackReply(instructionOverride);
+    return;
+  }
+
   const existingComposer = findActiveComposer();
   const userInstruction = combineInstructions(getInstruction(existingComposer), instructionOverride);
   const extraction = extractVisibleThreadForActiveComposer({ userInstruction });
@@ -133,13 +169,19 @@ async function draftReply(instructionOverride = "") {
   lastDebugState = { request: extraction.payload, response: response.data, selectedVariantIndex: response.data.selectedVariantIndex ?? 0 };
   ui.setDebugState(lastDebugState);
 
-  const targetComposer = lastComposer ?? extraction.composer;
+  const targetComposer = extraction.composer;
+  if (!isComposerUsable(targetComposer)) {
+    ui.setError("The original Gmail composer is no longer available. Open the compose box and try again.");
+    return;
+  }
+
   const variants = response.data.variants?.length ? response.data.variants : [createFallbackVariant(response.data.draft, response.data.subject)];
   const selectedIndex = response.data.selectedVariantIndex ?? 0;
+  const originalComposerText = getComposerDraftText(targetComposer);
   insertNewEmailDraft(targetComposer, variants[selectedIndex]?.draft ?? response.data.draft, variants[selectedIndex]?.subject ?? response.data.subject, response.data.overwriteBehavior);
   ui.setSuccess(response.data.summary);
   ui.setGroundingState(response.data);
-  ui.setVariants(variants, targetComposer, selectedIndex);
+  ui.setVariants(variants, targetComposer, selectedIndex, response.data.overwriteBehavior, originalComposerText);
 }
 
 async function draftNewEmail(instructionOverride = "") {
@@ -181,18 +223,81 @@ async function draftNewEmail(instructionOverride = "") {
   lastDebugState = { request: extraction.payload, response: response.data, selectedVariantIndex: response.data.selectedVariantIndex ?? 0 };
   ui.setDebugState(lastDebugState);
 
-  const targetComposer = lastComposer ?? extraction.composer;
+  const targetComposer = extraction.composer;
+  if (!isComposerUsable(targetComposer)) {
+    ui.setError("The original Gmail composer is no longer available. Open the compose box and try again.");
+    return;
+  }
+
   const variants = response.data.variants?.length ? response.data.variants : [createFallbackVariant(response.data.draft, response.data.subject)];
   const selectedIndex = response.data.selectedVariantIndex ?? 0;
   const selected = variants[selectedIndex] ?? variants[0];
+  const originalComposerText = getComposerDraftText(targetComposer);
   insertNewEmailDraft(targetComposer, selected?.draft ?? response.data.draft, selected?.subject ?? response.data.subject, response.data.overwriteBehavior);
   ui.setSuccess(response.data.summary);
   ui.setGroundingState(response.data);
-  ui.setVariants(variants, targetComposer, selectedIndex);
+  ui.setVariants(variants, targetComposer, selectedIndex, response.data.overwriteBehavior, originalComposerText);
 }
 
-function renderUi(composer: ReturnType<typeof findActiveComposer>) {
-  const root = composer ? getComposerRoot(composer) : document.body;
+async function draftSlackReply(instructionOverride = "") {
+  const existingComposer = findActiveSlackComposer();
+  const userInstruction = combineInstructions(getInstruction(existingComposer), instructionOverride);
+  const extraction = extractVisibleSlackContextForActiveComposer({ userInstruction });
+  const composer = extraction.ok ? extraction.composer : extraction.composer ?? findActiveSlackComposer();
+  if (composer) lastComposer = composer;
+
+  if (!extraction.ok) {
+    if (composer) {
+      const ui = renderUi(composer);
+      ui.setError(extraction.error);
+      return;
+    }
+    renderToast(extraction.error);
+    return;
+  }
+
+  const ui = renderUi(extraction.composer);
+  ui.setLoading("Drafting Slack response with Glean...");
+  console.info("slack_extraction_succeeded", {
+    visibleMessageCount: extraction.payload.messages.length,
+    requestId: extraction.payload.clientRequestId,
+  });
+
+  lastDebugState = { request: extraction.payload };
+  ui.setDebugState(lastDebugState);
+
+  const response = (await chrome.runtime.sendMessage({
+    type: "REQUEST_SLACK_DRAFT",
+    payload: extraction.payload,
+  })) as BackgroundResponse;
+
+  if (!response.ok) {
+    lastDebugState = { request: extraction.payload, error: response.error };
+    ui.setDebugState(lastDebugState);
+    ui.setError(response.error);
+    return;
+  }
+
+  lastDebugState = { request: extraction.payload, response: response.data, selectedVariantIndex: response.data.selectedVariantIndex ?? 0 };
+  ui.setDebugState(lastDebugState);
+
+  const targetComposer = extraction.composer;
+  if (!isComposerUsable(targetComposer)) {
+    ui.setError("The original Slack composer is no longer available. Open the message box and try again.");
+    return;
+  }
+
+  const variants = response.data.variants?.length ? response.data.variants : [createFallbackVariant(response.data.draft, response.data.subject)];
+  const selectedIndex = response.data.selectedVariantIndex ?? 0;
+  const originalComposerText = getDraftText(targetComposer, "slack");
+  insertDraftForSurface(targetComposer, variants[selectedIndex]?.draft ?? response.data.draft, undefined, response.data.overwriteBehavior, "slack");
+  ui.setSuccess(response.data.summary);
+  ui.setGroundingState(response.data);
+  ui.setVariants(variants, targetComposer, selectedIndex, response.data.overwriteBehavior, originalComposerText, "slack");
+}
+
+function renderUi(composer: ComposerTarget | undefined) {
+  const root = composer?.root ?? document.body;
   let el = root.querySelector<GgdUiElement>(".ggd-inline-ui");
 
   if (!el) {
@@ -564,13 +669,18 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
   const requestDebug = el.querySelector<HTMLElement>(".request-debug");
   const responseDebug = el.querySelector<HTMLElement>(".response-debug");
   const sourcesList = el.querySelector<HTMLElement>(".sources-list");
-  const uiState = el.__ggdVariantState ??= { variants: [], selectedVariantIndex: 0 };
+  const uiState = el.__ggdVariantState ??= { variants: [], selectedVariantIndex: 0, originalComposerText: "", overwriteBehavior: "replace", surface: "gmail" };
   const applyVariant = (nextIndex: number) => {
     if (!uiState.variantComposer || uiState.variants.length < 1) return;
+    if (!isComposerUsable(uiState.variantComposer)) {
+      if (message) message.innerHTML = formatErrorMessage("Composer unavailable: Open the compose box and draft again.");
+      return;
+    }
+
     uiState.selectedVariantIndex = (nextIndex + uiState.variants.length) % uiState.variants.length;
     const selectedVariant = uiState.variants[uiState.selectedVariantIndex];
     if (!selectedVariant) return;
-    insertNewEmailDraft(uiState.variantComposer, selectedVariant.draft, selectedVariant.subject, "replace");
+    insertDraftForSurface(uiState.variantComposer, getVariantDraftForInsert(uiState, selectedVariant), selectedVariant.subject, "replace", uiState.surface);
     if (variantCount) variantCount.textContent = `${selectedVariant.label} of ${uiState.variants.length}`;
     if (lastDebugState) lastDebugState.selectedVariantIndex = uiState.selectedVariantIndex;
     renderDebugState(requestDebug, responseDebug, lastDebugState);
@@ -625,10 +735,13 @@ function renderUi(composer: ReturnType<typeof findActiveComposer>) {
     setGroundingState(response: DraftResponsePayload) {
       renderGroundingState(sourcesList, response);
     },
-    setVariants(nextVariants: DraftVariant[], composerTarget: ReturnType<typeof findActiveComposer>, selectedIndex: number) {
+    setVariants(nextVariants: DraftVariant[], composerTarget: ComposerTarget, selectedIndex: number, overwriteBehavior: OverwriteBehavior, originalComposerText: string, surface: DraftSurface = "gmail") {
       uiState.variants = nextVariants;
       uiState.selectedVariantIndex = Math.min(Math.max(selectedIndex, 0), Math.max(nextVariants.length - 1, 0));
       uiState.variantComposer = composerTarget;
+      uiState.originalComposerText = originalComposerText;
+      uiState.overwriteBehavior = overwriteBehavior;
+      uiState.surface = surface;
       el.classList.add("has-draft");
       el.classList.toggle("has-variants", uiState.variants.length > 1);
       const hasMultipleVariants = uiState.variants.length > 1;
@@ -696,6 +809,31 @@ function combineInstructions(primary: string, override: string) {
   return [primary.trim(), override.trim()].filter(Boolean).join("\n\nAdditional revision request:\n");
 }
 
+function isComposerUsable(composer: ComposerTarget) {
+  return composer.editor.isConnected && composer.root.isConnected;
+}
+
+function getVariantDraftForInsert(uiState: VariantUiState, selectedVariant: DraftVariant) {
+  if (uiState.overwriteBehavior !== "append" || !uiState.originalComposerText.trim()) {
+    return selectedVariant.draft;
+  }
+
+  return [uiState.originalComposerText.trim(), selectedVariant.draft.trim()].filter(Boolean).join("\n\n");
+}
+
+function getDraftText(composer: ComposerTarget, surface: DraftSurface) {
+  return surface === "slack" ? getSlackComposerDraftText(composer) : getComposerDraftText(composer);
+}
+
+function insertDraftForSurface(composer: ComposerTarget, draft: string, subject: string | undefined, mode: OverwriteBehavior, surface: DraftSurface) {
+  if (surface === "slack") {
+    insertSlackDraft(composer, draft, mode);
+    return;
+  }
+
+  insertNewEmailDraft(composer, draft, subject, mode);
+}
+
 function renderDebugState(requestDebug: HTMLElement | null, responseDebug: HTMLElement | null, state: DebugState | undefined) {
   if (requestDebug) requestDebug.textContent = state?.request ? JSON.stringify(redactDebugPayload(state.request), null, 2) : "No request yet.";
   if (responseDebug) {
@@ -726,7 +864,7 @@ function formatDebugState(state: DebugState | undefined) {
   }, null, 2);
 }
 
-function redactDebugPayload(payload: DraftRequestPayload | NewEmailRequestPayload) {
+function redactDebugPayload(payload: DraftRequestPayload | NewEmailRequestPayload | SlackDraftRequestPayload) {
   return {
     ...payload,
     pageUrl: payload.pageUrl.replace(/[#?].*$/, ""),
@@ -744,9 +882,17 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
-function getInstruction(composer: ReturnType<typeof findActiveComposer>) {
-  const root = composer ? getComposerRoot(composer) : document.body;
+function getInstruction(composer: ComposerTarget | undefined) {
+  const root = composer?.root ?? document.body;
   return root.querySelector<HTMLTextAreaElement>(".ggd-inline-ui .instruction")?.value ?? "";
+}
+
+function isGmailSurface() {
+  return location.hostname.endsWith("mail.google.com");
+}
+
+function isSlackSurface() {
+  return location.hostname.endsWith("slack.com") || location.hostname === "app.slack.com";
 }
 
 function renderToast(text: string) {

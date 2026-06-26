@@ -1,5 +1,5 @@
 import type { ReplySettings } from "@gmail-glean-reply-drafter/shared";
-import type { ValidDraftRequest, ValidNewEmailRequest } from "./schema.js";
+import type { ValidDraftRequest, ValidNewEmailRequest, ValidSlackDraftRequest } from "./schema.js";
 
 export function buildReplyPrompt(payload: ValidDraftRequest, settings: ReplySettings) {
   const selectedMessages = selectMessages(payload, settings);
@@ -212,4 +212,130 @@ function formatNewEmailUser(payload: ValidNewEmailRequest) {
   const email = payload.currentUser?.email;
   if (name && email) return `${name} <${email}>`;
   return name || email || "the user";
+}
+
+export function buildSlackReplyPrompt(payload: ValidSlackDraftRequest, settings: ReplySettings) {
+  const selectedMessages = selectSlackMessages(payload, settings);
+  const latestMessage = selectedMessages.find((message) => message.isLatestVisible) ?? selectedMessages.at(-1);
+  const priorMessages = selectedMessages.filter((message) => message !== latestMessage);
+
+  return `You are drafting a Slack response for ${formatSlackUser(payload)}.
+
+Draft only from the visible Slack context below. Slack history may be virtualized or missing, so do not assume facts that are not present.
+
+Voice:
+${formatVoice(settings)}
+
+Length:
+${formatSlackLength(settings)}
+
+Personal writing preferences:
+${formatWritingPreferences(settings)}
+
+${formatSlackSchedulingInstructions(payload)}
+
+Rules:
+- Return only the Slack message body as plain text.
+- Do not include an email subject, greeting, sign-off, signature, or markdown fence.
+- Keep the response natural for Slack: concise, conversational, and easy to send.
+- Preserve Slack mentions, channel names, links, and quoted names from the context or user instruction.
+- The user instruction is private drafting guidance from ${formatSlackUser(payload)}. Use it as the highest-priority intent, but do not quote it verbatim unless it is clearly drafted Slack text.
+- If the current draft conflicts with the user instruction, rewrite the draft to follow the user instruction.
+- Resolve pronouns and ownership carefully. In user instructions, "me" and "I" usually refer to ${formatSlackUser(payload)}.
+- Do not invent commitments, dates, approvals, facts, links, or decisions.
+- If the latest ask cannot be answered from context, write a useful Slack reply that acknowledges the ask and proposes a next step.
+- Avoid corporate filler.
+- Never use em dashes. Replace em dashes with commas, periods, colons, semicolons, or parentheses.
+- Do not include working notes, analysis, reasoning, status updates, or alternatives.
+- If a current draft is provided, revise that draft according to the user's instruction while preserving facts from the visible Slack context.
+
+User instruction:
+${payload.userInstruction || "(none)"}
+
+Current draft in Slack composer:
+${payload.currentDraft || "(none)"}
+
+Workspace:
+${payload.workspaceName || "(not visible)"}
+
+Channel or DM:
+${payload.channelName || "(not visible)"}
+
+Thread title:
+${payload.threadTitle || "(not visible)"}
+
+Visible participants:
+${payload.participantsVisible.length ? payload.participantsVisible.join(", ") : "(not visible)"}
+
+Most recent visible message:
+${formatSlackMessage(latestMessage)}
+
+Prior visible Slack context, oldest to newest:
+${priorMessages.length ? priorMessages.map(formatSlackMessage).join("\n\n---\n\n") : "(none)"}
+`;
+}
+
+function formatSlackSchedulingInstructions(payload: ValidSlackDraftRequest) {
+  const timezone = payload.clientTimezone || "America/New_York";
+  if (!hasSlackSchedulingIntent(payload)) {
+    return ["Scheduling support:", "- No scheduling intent detected."].join("\n");
+  }
+
+  return [
+    "Scheduling support:",
+    "- Scheduling intent detected. Use Glean's Google Calendar Find free slots action, if available, to check the user's real availability.",
+    '- Use calendar identifier "primary" unless the Slack context explicitly names another calendar or attendee calendar.',
+    `- Interpret dates and times in timezone ${timezone}.`,
+    "- If Glean cannot access calendar availability or the action is unavailable, say the time still needs to be confirmed instead of pretending a slot is available.",
+    "- Do not create or modify calendar events. Only draft the Slack response.",
+  ].join("\n");
+}
+
+export function hasSlackSchedulingIntent(payload: ValidSlackDraftRequest) {
+  const text = [
+    payload.workspaceName,
+    payload.channelName,
+    payload.threadTitle,
+    payload.userInstruction,
+    payload.currentDraft,
+    ...payload.messages.map((message) => message.bodyText),
+  ]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+
+  return /\b(schedule|scheduling|calendar|available|availability|free|busy|meet|meeting|call|sync|slot|slots|time|times|tomorrow|today|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|am|pm)\b/.test(text);
+}
+
+function formatSlackUser(payload: ValidSlackDraftRequest) {
+  const name = payload.currentUser?.name;
+  const email = payload.currentUser?.email;
+  if (name && email) return `${name} <${email}>`;
+  return name || email || "the user";
+}
+
+function formatSlackMessage(message: ValidSlackDraftRequest["messages"][number] | undefined) {
+  if (!message) return "(none)";
+  return [
+    `From: ${message.senderName || message.senderEmail || "unknown"}`,
+    message.timestampText ? `Time: ${message.timestampText}` : undefined,
+    "",
+    message.bodyText,
+  ]
+    .filter((line) => line !== undefined)
+    .join("\n");
+}
+
+function selectSlackMessages(payload: ValidSlackDraftRequest, settings: ReplySettings) {
+  if (settings.contextDepth === "latest") {
+    return [payload.messages.find((message) => message.isLatestVisible) ?? payload.messages.at(-1)].filter(Boolean) as ValidSlackDraftRequest["messages"];
+  }
+
+  return payload.messages;
+}
+
+function formatSlackLength(settings: ReplySettings) {
+  if (settings.defaultLength === "short") return "Keep it short: usually 1-4 Slack-sized sentences unless the context clearly requires more.";
+  if (settings.defaultLength === "detailed") return "Use enough detail to fully answer the ask while still sounding natural in Slack.";
+  return "Use a medium Slack length: complete, but compact.";
 }

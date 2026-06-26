@@ -166,6 +166,10 @@ export function getComposerRoot(composer: ComposerTarget) {
   return composer.root;
 }
 
+export function getComposerDraftText(composer: ComposerTarget) {
+  return getComposerText(composer.editor);
+}
+
 export async function openEmailAndReplyFromList(): Promise<OpenEmailResult | OpenEmailFailure> {
   const row = findTargetEmailRow();
   if (!row) {
