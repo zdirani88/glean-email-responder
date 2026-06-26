@@ -297,12 +297,12 @@ async function draftSlackReply(instructionOverride = "") {
 }
 
 function renderUi(composer: ComposerTarget | undefined) {
-  const root = composer?.root ?? document.body;
+  const root = isSlackSurface() ? document.body : composer?.root ?? document.body;
   let el = root.querySelector<GgdUiElement>(".ggd-inline-ui");
 
   if (!el) {
     el = document.createElement("div") as GgdUiElement;
-    el.className = "ggd-inline-ui";
+    el.className = `ggd-inline-ui${isSlackSurface() ? " slack-floating" : ""}`;
     el.innerHTML = `
       <style>
         .ggd-inline-ui {
@@ -320,6 +320,26 @@ function renderUi(composer: ComposerTarget | undefined) {
           max-width: min(860px, calc(100vw - 64px));
           padding: 10px;
           z-index: 9999;
+        }
+        .ggd-inline-ui.hidden {
+          display: none;
+        }
+        .ggd-inline-ui.slack-floating {
+          bottom: 18px;
+          box-sizing: border-box;
+          left: auto;
+          margin: 0;
+          max-height: min(560px, calc(100vh - 36px));
+          max-width: min(720px, calc(100vw - 36px));
+          overflow: auto;
+          position: fixed;
+          right: 18px;
+          width: min(720px, calc(100vw - 36px));
+          z-index: 2147483647;
+        }
+        .ggd-inline-ui.slack-floating .brand {
+          cursor: move;
+          user-select: none;
         }
         .ggd-inline-ui .brand {
           align-items: center;
@@ -605,7 +625,7 @@ function renderUi(composer: ComposerTarget | undefined) {
           }
         }
       </style>
-      <div class="brand"><span class="spark">G</span><span>Glean reply</span></div>
+      <div class="brand" title="Drag to move"><span class="spark">G</span><span>Glean reply</span></div>
       <textarea class="instruction" rows="1" placeholder="Add context or revision notes, then press Enter"></textarea>
       <button type="button" class="draft">Draft</button>
       <button type="button" class="secondary regenerate">Revise</button>
@@ -657,8 +677,18 @@ function renderUi(composer: ComposerTarget | undefined) {
     el.querySelector<HTMLButtonElement>(".copy-debug")?.addEventListener("click", () => {
       void navigator.clipboard?.writeText(formatDebugState(lastDebugState));
     });
-    el.querySelector<HTMLButtonElement>(".close")?.addEventListener("click", () => uiEl.remove());
+    el.querySelector<HTMLButtonElement>(".close")?.addEventListener("click", () => {
+      if (uiEl.classList.contains("slack-floating")) {
+        uiEl.classList.add("hidden");
+        return;
+      }
+      uiEl.remove();
+    });
+    setupDraggablePanel(el);
   }
+
+  el.classList.remove("hidden");
+  if (isSlackSurface()) el.classList.add("slack-floating");
 
   const instruction = el.querySelector<HTMLTextAreaElement>(".instruction");
   const draftButton = el.querySelector<HTMLButtonElement>(".draft");
@@ -687,6 +717,7 @@ function renderUi(composer: ComposerTarget | undefined) {
   };
   if (previousVariant) previousVariant.onclick = () => applyVariant(uiState.selectedVariantIndex - 1);
   if (nextVariant) nextVariant.onclick = () => applyVariant(uiState.selectedVariantIndex + 1);
+  renderDebugState(requestDebug, responseDebug, lastDebugState);
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
   return {
     focusInstruction() {
@@ -832,6 +863,45 @@ function insertDraftForSurface(composer: ComposerTarget, draft: string, subject:
   }
 
   insertNewEmailDraft(composer, draft, subject, mode);
+}
+
+function setupDraggablePanel(panel: HTMLElement) {
+  const handle = panel.querySelector<HTMLElement>(".brand");
+  if (!handle) return;
+
+  handle.addEventListener("pointerdown", (event) => {
+    if (!panel.classList.contains("slack-floating") || event.button !== 0) return;
+
+    const rect = panel.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+    panel.style.left = `${rect.left}px`;
+    panel.style.top = `${rect.top}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    panel.setPointerCapture(event.pointerId);
+    event.preventDefault();
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      const maxLeft = Math.max(8, window.innerWidth - panel.offsetWidth - 8);
+      const maxTop = Math.max(8, window.innerHeight - panel.offsetHeight - 8);
+      const nextLeft = Math.min(Math.max(8, moveEvent.clientX - offsetX), maxLeft);
+      const nextTop = Math.min(Math.max(8, moveEvent.clientY - offsetY), maxTop);
+      panel.style.left = `${nextLeft}px`;
+      panel.style.top = `${nextTop}px`;
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      panel.releasePointerCapture(upEvent.pointerId);
+      panel.removeEventListener("pointermove", onPointerMove);
+      panel.removeEventListener("pointerup", onPointerUp);
+      panel.removeEventListener("pointercancel", onPointerUp);
+    };
+
+    panel.addEventListener("pointermove", onPointerMove);
+    panel.addEventListener("pointerup", onPointerUp);
+    panel.addEventListener("pointercancel", onPointerUp);
+  });
 }
 
 function renderDebugState(requestDebug: HTMLElement | null, responseDebug: HTMLElement | null, state: DebugState | undefined) {
