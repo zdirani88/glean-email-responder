@@ -1,9 +1,9 @@
 import { app, BrowserWindow, clipboard, ipcMain, safeStorage, shell } from "electron";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { Server } from "node:http";
@@ -131,6 +131,7 @@ ipcMain.handle("helper:open-extension-folder", async (event) => {
 ipcMain.handle("helper:pair-extension", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
   await prepareInstallableExtensionFolder();
+  clipboard.writeText(getExtensionPairingUrl());
   await openChromeUrl(getExtensionPairingUrl());
 });
 
@@ -243,6 +244,8 @@ function toBackendConfig(config: HelperConfig, token?: string): AppConfig {
 }
 
 function getPublicStatus(): PublicStatus {
+  const bundledExtensionPath = getBundledExtensionPath();
+  const installableExtensionPath = getInstallableExtensionPath();
   const status: PublicStatus = {
     running: Boolean(server?.listening),
     port: currentConfig.port,
@@ -252,10 +255,10 @@ function getPublicStatus(): PublicStatus {
     hasToken: Boolean(currentConfig.encryptedToken),
     hasLocalSecret: Boolean(currentConfig.encryptedLocalSecret),
     launchAtLogin: currentConfig.launchAtLogin,
-    extensionPath: getInstallableExtensionPath(),
+    extensionPath: installableExtensionPath,
     extensionId: EXTENSION_ID,
-    extensionFolderReady: existsSync(getInstallableExtensionPath()),
-    bundledExtensionReady: existsSync(getBundledExtensionPath()),
+    extensionFolderReady: existsSync(join(installableExtensionPath, "manifest.json")),
+    bundledExtensionReady: existsSync(join(bundledExtensionPath, "manifest.json")),
   };
   if (currentConfig.extensionPairedAt) status.extensionPairedAt = currentConfig.extensionPairedAt;
   if (lastServerError) status.serverError = lastServerError;
@@ -263,11 +266,22 @@ function getPublicStatus(): PublicStatus {
 }
 
 function getBundledExtensionPath() {
-  if (app.isPackaged) {
-    return join(process.resourcesPath, "extension");
+  const fallbackPath = app.isPackaged ? join(process.resourcesPath, "extension") : resolve(app.getAppPath(), "..", "extension", "dist");
+  const candidates: string[] = app.isPackaged
+    ? [
+        fallbackPath,
+        resolve(app.getAppPath(), "..", "extension"),
+        resolve(app.getAppPath(), "..", "..", "extension"),
+      ]
+    : [fallbackPath];
+
+  for (const candidate of candidates) {
+    if (existsSync(join(candidate, "manifest.json"))) {
+      return candidate;
+    }
   }
 
-  return resolve(app.getAppPath(), "..", "extension", "dist");
+  return fallbackPath;
 }
 
 function getInstallableExtensionPath() {
@@ -277,13 +291,18 @@ function getInstallableExtensionPath() {
 async function prepareInstallableExtensionFolder() {
   const source = getBundledExtensionPath();
   const destination = getInstallableExtensionPath();
+  const destinationManifest = join(destination, "manifest.json");
 
-  if (!existsSync(source)) {
+  if (!existsSync(join(source, "manifest.json"))) {
     throw new Error(`Bundled extension folder was not found at ${source}`);
   }
 
-  await mkdir(destination, { recursive: true });
+  await mkdir(dirname(destination), { recursive: true });
+  await rm(destination, { recursive: true, force: true });
   await cp(source, destination, { recursive: true, force: true });
+  if (!existsSync(destinationManifest)) {
+    throw new Error(`Extension copy failed. Expected manifest at ${destinationManifest}`);
+  }
   return destination;
 }
 

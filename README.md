@@ -18,6 +18,10 @@ The MVP proves this loop:
 - `helper-app/` - Electron desktop helper that runs the backend locally and stores the Glean token securely.
 - `shared/` - Shared request and response TypeScript types.
 
+## New Mac Setup
+
+For a clean setup on a new computer, follow [`docs/setup-from-scratch.md`](docs/setup-from-scratch.md).
+
 ## Backend Setup
 
 ```bash
@@ -73,19 +77,27 @@ For local development, leave `BACKEND_SHARED_SECRET` blank only when you are tes
 
 ## Desktop Helper App
 
-For non-technical users, package the local backend as a desktop app. For distributable builds, use the release command so the helper app patch version increments before the `.dmg` is created:
+For non-technical users, package the local backend as a desktop app. For distributable builds, use the release command to create the `.dmg` and copy it into the local release output folder:
 
 ```bash
 npm run release:helper:mac
 ```
 
-Use `npm run package:helper:mac` only for throwaway local packaging tests when you do not want to bump the app version.
+Use `npm run package:helper:mac` when you only need to rebuild the DMG in `helper-app/dist/`.
 
 The generated macOS installer is written under:
 
 ```text
 helper-app/dist/
 ```
+
+The local release copy is written under:
+
+```text
+outputs/releases/
+```
+
+Generated DMGs are intentionally not committed to source history. Push a `helper-v*` tag to attach a DMG to a GitHub Release, or run the `Build Mac Helper` workflow manually to save a DMG as a GitHub Actions artifact.
 
 The helper app:
 
@@ -147,4 +159,5 @@ npm run dev:backend
 npm run dev:helper
 npm run package:helper:mac
 npm run release:helper:mac
+npm run clean
 ```

@@ -152,7 +152,7 @@ openExtensionsButton?.addEventListener("click", () => {
 });
 
 openExtensionFolderButton?.addEventListener("click", async () => {
-  await runAction("Latest extension copied to Desktop. In Chrome, click Reload on Glean Email Responder or Load unpacked if it is not installed yet.", async () => {
+  await runAction("Latest extension copied to Desktop. In Chrome, click Reload on Glean Response Assistant, or click Load unpacked and select the Desktop folder if it is not installed yet.", async () => {
     await window.gmailGleanHelper.openExtensionFolder();
     renderStatus(await window.gmailGleanHelper.getStatus());
   });
@@ -168,7 +168,7 @@ pairExtensionButton?.addEventListener("click", async () => {
       return;
     }
 
-    setMessage("Pairing page opened in Chrome. If the checklist does not turn green, reload the extension and click Pair extension again.", "neutral");
+    setMessage("Pairing link opened and copied. If Chrome says the page cannot be found, first load the Desktop extension folder in chrome://extensions, then click Pair extension again.", "neutral");
   });
 });
 
@@ -393,7 +393,7 @@ function toFriendlyError(error: unknown) {
     return "Glean took too long: increase Timeout in Reply settings, then try again.";
   }
   if (text.includes("extension folder") || text.includes("bundled extension")) {
-    return "Extension copy problem: reinstall the latest helper app, then click Refresh extension copy.";
+    return "Extension copy problem: click Refresh extension copy again. If it still fails, reinstall the latest helper app.";
   }
   return raw;
 }
