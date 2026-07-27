@@ -19,6 +19,7 @@ interface HelperConfig {
   extensionInstallPath?: string;
   launchAtLogin: boolean;
   extensionPairedAt?: string;
+  extensionPairedVersion?: string;
 }
 
 interface PublicStatus {
@@ -39,11 +40,14 @@ interface PublicStatus {
   bundledExtensionDetail: string;
   extensionManifestVersion?: string;
   bundledExtensionManifestVersion?: string;
+  extensionVersionMatches: boolean;
+  extensionPairedVersion?: string;
   serverError?: string;
 }
 
 interface ExtensionActionResult {
   extensionPath: string;
+  extensionVersion: string;
   warnings: string[];
 }
 
@@ -142,23 +146,23 @@ ipcMain.handle("helper:open-url", async (_event, url: string) => {
 
 ipcMain.handle("helper:open-extension-folder", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
-  const { extensionPath, warnings } = await prepareInstallableExtensionFolder();
+  const { extensionPath, extensionVersion, warnings } = await prepareInstallableExtensionFolder();
   clipboard.writeText(extensionPath);
   await captureWarning(warnings, "Chrome extensions page did not open automatically.", () => openChromeUrl("chrome://extensions"));
   await captureWarning(warnings, "Finder did not open the copied extension folder automatically.", async () => {
     const result = await shell.openPath(extensionPath);
     if (result) throw new Error(result);
   });
-  return { extensionPath, warnings } satisfies ExtensionActionResult;
+  return { extensionPath, extensionVersion, warnings } satisfies ExtensionActionResult;
 });
 
 ipcMain.handle("helper:pair-extension", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
-  const { extensionPath, warnings } = await prepareInstallableExtensionFolder();
+  const { extensionPath, extensionVersion, warnings } = await prepareInstallableExtensionFolder();
   const pairingUrl = getExtensionPairingUrl();
   clipboard.writeText(pairingUrl);
   await captureWarning(warnings, "Pairing page did not open automatically. The pairing link is copied to your clipboard.", () => openChromeUrl(pairingUrl));
-  return { extensionPath, warnings } satisfies ExtensionActionResult;
+  return { extensionPath, extensionVersion, warnings } satisfies ExtensionActionResult;
 });
 
 ipcMain.handle("helper:copy-pairing-link", async (event) => {
@@ -178,6 +182,7 @@ ipcMain.handle("helper:rotate-local-secret", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
   currentConfig.encryptedLocalSecret = encryptToken(generateLocalSecret());
   delete currentConfig.extensionPairedAt;
+  delete currentConfig.extensionPairedVersion;
   await saveHelperConfig(currentConfig);
   await restartLocalServerSafely();
   return getPublicStatus();
@@ -262,8 +267,14 @@ function toBackendConfig(config: HelperConfig, token?: string): AppConfig {
 
   if (token) backendConfig.gleanApiToken = token;
   backendConfig.sharedSecret = getLocalSecret(config);
-  backendConfig.onPairingConfirmed = () => {
-    currentConfig = { ...currentConfig, extensionPairedAt: new Date().toISOString() };
+  backendConfig.onPairingConfirmed = (extensionVersion) => {
+    const nextConfig = {
+      ...currentConfig,
+      extensionPairedAt: new Date().toISOString(),
+      ...(extensionVersion ? { extensionPairedVersion: extensionVersion } : {}),
+    };
+    if (!extensionVersion) delete nextConfig.extensionPairedVersion;
+    currentConfig = nextConfig;
     void saveHelperConfig(currentConfig);
   };
   return backendConfig;
@@ -274,6 +285,10 @@ function getPublicStatus(): PublicStatus {
   const installableExtensionPath = getInstallableExtensionPath();
   const bundledExtension = getExtensionFolderStatus(bundledExtensionPath);
   const installableExtension = getExtensionFolderStatus(installableExtensionPath);
+  const extensionVersionMatches = Boolean(
+    bundledExtension.manifestVersion && installableExtension.manifestVersion === bundledExtension.manifestVersion,
+  );
+  const extensionFolderDetail = getInstallableExtensionDetail(installableExtension, bundledExtension);
   const status: PublicStatus = {
     running: Boolean(server?.listening),
     port: currentConfig.port,
@@ -287,12 +302,14 @@ function getPublicStatus(): PublicStatus {
     extensionId: EXTENSION_ID,
     extensionFolderReady: installableExtension.ready,
     bundledExtensionReady: bundledExtension.ready,
-    extensionFolderDetail: installableExtension.detail,
+    extensionFolderDetail,
     bundledExtensionDetail: bundledExtension.detail,
+    extensionVersionMatches,
   };
   if (installableExtension.manifestVersion) status.extensionManifestVersion = installableExtension.manifestVersion;
   if (bundledExtension.manifestVersion) status.bundledExtensionManifestVersion = bundledExtension.manifestVersion;
   if (currentConfig.extensionPairedAt) status.extensionPairedAt = currentConfig.extensionPairedAt;
+  if (currentConfig.extensionPairedVersion) status.extensionPairedVersion = currentConfig.extensionPairedVersion;
   if (lastServerError) status.serverError = lastServerError;
   return status;
 }
@@ -338,7 +355,7 @@ async function prepareInstallableExtensionFolder() {
       if (destination !== getDesktopExtensionPath()) {
         warnings.push(`macOS did not allow copying to Desktop, so the extension was copied to ${destination}.`);
       }
-      return { extensionPath: destination, warnings };
+      return { extensionPath: destination, extensionVersion: sourceStatus.manifestVersion ?? "unknown", warnings };
     } catch (error) {
       warnings.push(`Could not copy extension to ${destination}: ${toErrorMessage(error)}`);
     }
@@ -378,6 +395,18 @@ async function copyExtensionFolder(source: string, destination: string) {
   if (!copiedStatus.ready) {
     throw new Error(copiedStatus.detail);
   }
+  if (copiedStatus.manifestVersion !== readExtensionManifestVersion(source)) {
+    throw new Error("The copied extension version does not match the bundled extension.");
+  }
+}
+
+function getInstallableExtensionDetail(installable: ExtensionFolderStatus, bundled: ExtensionFolderStatus) {
+  if (!installable.ready) return installable.detail;
+  if (!bundled.manifestVersion) return "Bundled extension version is unavailable.";
+  if (installable.manifestVersion !== bundled.manifestVersion) {
+    return `Out of date. Installed version ${installable.manifestVersion ?? "unknown"}; current version ${bundled.manifestVersion}. Click Install / refresh extension.`;
+  }
+  return `Current extension version ${bundled.manifestVersion}.`;
 }
 
 function getExtensionFolderStatus(path: string): ExtensionFolderStatus {

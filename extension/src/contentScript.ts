@@ -1,5 +1,5 @@
 import type { BackgroundResponse, ContentMessage } from "./types";
-import type { DraftRequestPayload, DraftResponsePayload, DraftVariant, NewEmailRequestPayload, OverwriteBehavior, SlackDraftRequestPayload } from "@gmail-glean-reply-drafter/shared";
+import type { DraftResponsePayload, DraftVariant, OverwriteBehavior } from "@gmail-glean-reply-drafter/shared";
 import {
   extractVisibleThreadForActiveComposer,
   findActiveComposer,
@@ -20,12 +20,11 @@ type DraftSurface = "gmail" | "slack";
 
 let lastComposer: ComposerTarget | undefined;
 let lastDebugState: DebugState | undefined;
+let draftRequestSequence = 0;
 
 interface DebugState {
-  request?: DraftRequestPayload | NewEmailRequestPayload | SlackDraftRequestPayload;
   response?: DraftResponsePayload;
   error?: string;
-  selectedVariantIndex?: number;
 }
 
 interface VariantUiState {
@@ -115,6 +114,8 @@ async function draftReply(instructionOverride = "") {
     return;
   }
 
+  const requestSequence = ++draftRequestSequence;
+
   const existingComposer = findActiveComposer();
   const userInstruction = combineInstructions(getInstruction(existingComposer), instructionOverride);
   const extraction = extractVisibleThreadForActiveComposer({ userInstruction });
@@ -130,12 +131,13 @@ async function draftReply(instructionOverride = "") {
         return;
       }
       await wait(300);
+      if (requestSequence !== draftRequestSequence) return;
       void openDraftPanel();
       return;
     }
 
     if (extraction.error.includes("visible message")) {
-      await draftNewEmail(instructionOverride);
+      await draftNewEmail(instructionOverride, requestSequence);
       return;
     }
 
@@ -151,7 +153,7 @@ async function draftReply(instructionOverride = "") {
     requestId: extraction.payload.clientRequestId,
   });
 
-  lastDebugState = { request: extraction.payload };
+  lastDebugState = undefined;
   ui.setDebugState(lastDebugState);
 
   const response = (await chrome.runtime.sendMessage({
@@ -159,14 +161,16 @@ async function draftReply(instructionOverride = "") {
     payload: extraction.payload,
   })) as BackgroundResponse;
 
+  if (requestSequence !== draftRequestSequence) return;
+
   if (!response.ok) {
-    lastDebugState = { request: extraction.payload, error: response.error };
+    lastDebugState = { error: response.error };
     ui.setDebugState(lastDebugState);
     ui.setError(response.error);
     return;
   }
 
-  lastDebugState = { request: extraction.payload, response: response.data, selectedVariantIndex: response.data.selectedVariantIndex ?? 0 };
+  lastDebugState = { response: response.data };
   ui.setDebugState(lastDebugState);
 
   const targetComposer = extraction.composer;
@@ -184,7 +188,7 @@ async function draftReply(instructionOverride = "") {
   ui.setVariants(variants, targetComposer, selectedIndex, response.data.overwriteBehavior, originalComposerText);
 }
 
-async function draftNewEmail(instructionOverride = "") {
+async function draftNewEmail(instructionOverride = "", requestSequence = ++draftRequestSequence) {
   const existingComposer = findActiveComposer();
   const userInstruction = combineInstructions(getInstruction(existingComposer), instructionOverride);
   const extraction = extractNewEmailForActiveComposer({ userInstruction });
@@ -205,7 +209,7 @@ async function draftNewEmail(instructionOverride = "") {
   const ui = renderUi(extraction.composer);
   ui.setPlaceholder("What should this email accomplish?");
   ui.setLoading("Drafting new email with Glean...");
-  lastDebugState = { request: extraction.payload };
+  lastDebugState = undefined;
   ui.setDebugState(lastDebugState);
 
   const response = (await chrome.runtime.sendMessage({
@@ -213,14 +217,16 @@ async function draftNewEmail(instructionOverride = "") {
     payload: extraction.payload,
   })) as BackgroundResponse;
 
+  if (requestSequence !== draftRequestSequence) return;
+
   if (!response.ok) {
-    lastDebugState = { request: extraction.payload, error: response.error };
+    lastDebugState = { error: response.error };
     ui.setDebugState(lastDebugState);
     ui.setError(response.error);
     return;
   }
 
-  lastDebugState = { request: extraction.payload, response: response.data, selectedVariantIndex: response.data.selectedVariantIndex ?? 0 };
+  lastDebugState = { response: response.data };
   ui.setDebugState(lastDebugState);
 
   const targetComposer = extraction.composer;
@@ -240,6 +246,7 @@ async function draftNewEmail(instructionOverride = "") {
 }
 
 async function draftSlackReply(instructionOverride = "") {
+  const requestSequence = ++draftRequestSequence;
   const existingComposer = findActiveSlackComposer();
   const userInstruction = combineInstructions(getInstruction(existingComposer), instructionOverride);
   const extraction = extractVisibleSlackContextForActiveComposer({ userInstruction });
@@ -263,7 +270,7 @@ async function draftSlackReply(instructionOverride = "") {
     requestId: extraction.payload.clientRequestId,
   });
 
-  lastDebugState = { request: extraction.payload };
+  lastDebugState = undefined;
   ui.setDebugState(lastDebugState);
 
   const response = (await chrome.runtime.sendMessage({
@@ -271,14 +278,16 @@ async function draftSlackReply(instructionOverride = "") {
     payload: extraction.payload,
   })) as BackgroundResponse;
 
+  if (requestSequence !== draftRequestSequence) return;
+
   if (!response.ok) {
-    lastDebugState = { request: extraction.payload, error: response.error };
+    lastDebugState = { error: response.error };
     ui.setDebugState(lastDebugState);
     ui.setError(response.error);
     return;
   }
 
-  lastDebugState = { request: extraction.payload, response: response.data, selectedVariantIndex: response.data.selectedVariantIndex ?? 0 };
+  lastDebugState = { response: response.data };
   ui.setDebugState(lastDebugState);
 
   const targetComposer = extraction.composer;
@@ -487,43 +496,48 @@ function renderUi(composer: ComposerTarget | undefined) {
           border: 1px solid #e3e7ee;
           border-radius: 10px;
           display: none;
-          gap: 10px;
           grid-column: 1 / -1;
           padding: 10px;
         }
         .ggd-inline-ui.debug-open .debug-panel {
-          display: grid;
+          display: block;
         }
-        .ggd-inline-ui .debug-grid {
+        .ggd-inline-ui .debug-stats {
           display: grid;
-          gap: 10px;
-          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
         }
-        .ggd-inline-ui .debug-box {
+        .ggd-inline-ui .debug-stat {
           background: #ffffff;
           border: 1px solid #e3e7ee;
           border-radius: 8px;
-          box-sizing: border-box;
-          color: #3c4043;
-          font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-          max-height: 180px;
-          min-height: 110px;
-          overflow: auto;
-          padding: 10px;
-          white-space: pre-wrap;
-        }
-        .ggd-inline-ui .debug-panel label {
-          color: #3c4043;
           display: grid;
+          gap: 4px;
+          min-width: 0;
+          padding: 9px 10px;
+        }
+        .ggd-inline-ui .debug-label {
+          color: #6f7681;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0;
+          text-transform: uppercase;
+        }
+        .ggd-inline-ui .debug-value {
+          color: #202124;
           font-size: 12px;
           font-weight: 700;
-          gap: 6px;
+          line-height: 1.35;
+          overflow-wrap: anywhere;
         }
-        .ggd-inline-ui .debug-actions {
-          align-items: center;
-          display: flex;
-          gap: 8px;
-          justify-content: flex-end;
+        .ggd-inline-ui .debug-error {
+          color: #b3261e;
+          display: none;
+          font-size: 12px;
+          margin-top: 8px;
+        }
+        .ggd-inline-ui .debug-error.visible {
+          display: block;
         }
         .ggd-inline-ui .variant-button:disabled {
           opacity: 0.42;
@@ -620,7 +634,7 @@ function renderUi(composer: ComposerTarget | undefined) {
           .ggd-inline-ui .debug-panel {
             grid-column: 1 / -1;
           }
-          .ggd-inline-ui .debug-grid {
+          .ggd-inline-ui .debug-stats {
             grid-template-columns: 1fr;
           }
         }
@@ -646,17 +660,12 @@ function renderUi(composer: ComposerTarget | undefined) {
         <div class="sources-list">No draft yet.</div>
       </div>
       <div class="debug-panel">
-        <div class="debug-grid">
-          <label>Last request payload<pre class="debug-box request-debug">No request yet.</pre></label>
-          <label>Last response or error<pre class="debug-box response-debug">No response yet.</pre></label>
+        <div class="debug-stats">
+          <div class="debug-stat"><span class="debug-label">AI mode</span><strong class="debug-value debug-mode">Not available</strong></div>
+          <div class="debug-stat"><span class="debug-label">Model</span><strong class="debug-value debug-model">Not available</strong></div>
+          <div class="debug-stat"><span class="debug-label">Token usage</span><strong class="debug-value debug-tokens">Not available</strong></div>
         </div>
-        <label>Improve this draft
-          <textarea class="debug-instruction" placeholder="Example: make this warmer, remove the scheduling caveat, and keep it under 4 sentences"></textarea>
-        </label>
-        <div class="debug-actions">
-          <button type="button" class="secondary copy-debug">Copy debug</button>
-          <button type="button" class="improve-debug">Improve draft</button>
-        </div>
+        <div class="debug-error"></div>
       </div>
     `;
     root.prepend(el);
@@ -670,13 +679,6 @@ function renderUi(composer: ComposerTarget | undefined) {
     });
     const uiEl = el;
     el.querySelector<HTMLButtonElement>(".debug-toggle")?.addEventListener("click", () => uiEl.classList.toggle("debug-open"));
-    el.querySelector<HTMLButtonElement>(".improve-debug")?.addEventListener("click", () => {
-      const instruction = uiEl.querySelector<HTMLTextAreaElement>(".debug-instruction")?.value.trim() ?? "";
-      if (instruction) void draftReply(instruction);
-    });
-    el.querySelector<HTMLButtonElement>(".copy-debug")?.addEventListener("click", () => {
-      void navigator.clipboard?.writeText(formatDebugState(lastDebugState));
-    });
     el.querySelector<HTMLButtonElement>(".close")?.addEventListener("click", () => {
       if (uiEl.classList.contains("slack-floating")) {
         uiEl.classList.add("hidden");
@@ -696,8 +698,10 @@ function renderUi(composer: ComposerTarget | undefined) {
   const variantCount = el.querySelector<HTMLElement>(".variant-count");
   const previousVariant = el.querySelector<HTMLButtonElement>(".previous");
   const nextVariant = el.querySelector<HTMLButtonElement>(".next");
-  const requestDebug = el.querySelector<HTMLElement>(".request-debug");
-  const responseDebug = el.querySelector<HTMLElement>(".response-debug");
+  const debugMode = el.querySelector<HTMLElement>(".debug-mode");
+  const debugModel = el.querySelector<HTMLElement>(".debug-model");
+  const debugTokens = el.querySelector<HTMLElement>(".debug-tokens");
+  const debugError = el.querySelector<HTMLElement>(".debug-error");
   const sourcesList = el.querySelector<HTMLElement>(".sources-list");
   const uiState = el.__ggdVariantState ??= { variants: [], selectedVariantIndex: 0, originalComposerText: "", overwriteBehavior: "replace", surface: "gmail" };
   const applyVariant = (nextIndex: number) => {
@@ -712,12 +716,11 @@ function renderUi(composer: ComposerTarget | undefined) {
     if (!selectedVariant) return;
     insertDraftForSurface(uiState.variantComposer, getVariantDraftForInsert(uiState, selectedVariant), selectedVariant.subject, "replace", uiState.surface);
     if (variantCount) variantCount.textContent = `${selectedVariant.label} of ${uiState.variants.length}`;
-    if (lastDebugState) lastDebugState.selectedVariantIndex = uiState.selectedVariantIndex;
-    renderDebugState(requestDebug, responseDebug, lastDebugState);
+    renderDebugState(debugMode, debugModel, debugTokens, debugError, lastDebugState);
   };
   if (previousVariant) previousVariant.onclick = () => applyVariant(uiState.selectedVariantIndex - 1);
   if (nextVariant) nextVariant.onclick = () => applyVariant(uiState.selectedVariantIndex + 1);
-  renderDebugState(requestDebug, responseDebug, lastDebugState);
+  renderDebugState(debugMode, debugModel, debugTokens, debugError, lastDebugState);
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
   return {
     focusInstruction() {
@@ -760,8 +763,8 @@ function renderUi(composer: ComposerTarget | undefined) {
       });
       if (message) message.textContent = text;
     },
-    setDebugState(state: DebugState) {
-      renderDebugState(requestDebug, responseDebug, state);
+    setDebugState(state: DebugState | undefined) {
+      renderDebugState(debugMode, debugModel, debugTokens, debugError, state);
     },
     setGroundingState(response: DraftResponsePayload) {
       renderGroundingState(sourcesList, response);
@@ -787,7 +790,7 @@ function renderUi(composer: ComposerTarget | undefined) {
       if (variantCount) {
         variantCount.textContent = hasMultipleVariants ? `${uiState.variants[uiState.selectedVariantIndex]?.label ?? "Draft 1"} of ${uiState.variants.length}` : "1 draft returned";
       }
-      renderDebugState(requestDebug, responseDebug, lastDebugState);
+      renderDebugState(debugMode, debugModel, debugTokens, debugError, lastDebugState);
     },
   };
 }
@@ -811,8 +814,21 @@ function formatTokenUsage(usage: NonNullable<DraftResponsePayload["tokenUsage"]>
     `output ${formatTokenCount(usage.outputTokens)}`,
     `total ${formatTokenCount(usage.totalTokens)}`,
   ];
+  if (usage.cacheCreationInputTokens !== undefined) {
+    parts.push(`cache write ${formatTokenCount(usage.cacheCreationInputTokens)}`);
+  }
+  if (usage.cacheReadInputTokens !== undefined) {
+    parts.push(`cache read ${formatTokenCount(usage.cacheReadInputTokens)}`);
+  }
+  if (usage.modelName) {
+    parts.push(`model ${usage.modelName}`);
+  }
+  if (usage.provider) {
+    parts.push(`provider ${usage.provider}`);
+  }
   if (usage.estimatedCostUsd !== null) {
-    parts.push(`cost ${formatUsd(usage.estimatedCostUsd)}`);
+    const costSource = usage.estimatedCostSource === "vendor-list-price" ? "vendor estimate" : "cost";
+    parts.push(`${costSource} ${formatUsd(usage.estimatedCostUsd)}`);
   }
 
   return `${parts.join(", ")} (${usage.source}). ${usage.note}`;
@@ -904,41 +920,29 @@ function setupDraggablePanel(panel: HTMLElement) {
   });
 }
 
-function renderDebugState(requestDebug: HTMLElement | null, responseDebug: HTMLElement | null, state: DebugState | undefined) {
-  if (requestDebug) requestDebug.textContent = state?.request ? JSON.stringify(redactDebugPayload(state.request), null, 2) : "No request yet.";
-  if (responseDebug) {
-    responseDebug.textContent = state?.response
-      ? JSON.stringify({
-          selectedVariantIndex: state.selectedVariantIndex ?? state.response.selectedVariantIndex,
-          effectiveGleanMode: state.response.effectiveGleanMode,
-          summary: state.response.summary,
-          variants: state.response.variants,
-          groundingSources: state.response.groundingSources,
-          calendarStatus: state.response.calendarStatus,
-          tokenUsage: state.response.tokenUsage,
-          warnings: state.response.warnings,
-          requestId: state.response.requestId,
-        }, null, 2)
-      : state?.error
-        ? state.error
-        : "No response yet.";
+function renderDebugState(modeElement: HTMLElement | null, modelElement: HTMLElement | null, tokensElement: HTMLElement | null, errorElement: HTMLElement | null, state: DebugState | undefined) {
+  const usage = state?.response?.tokenUsage;
+  const mode = state?.response?.effectiveGleanMode;
+  const model = usage?.modelName
+    ? usage.provider && !usage.modelName.toLowerCase().includes(usage.provider.toLowerCase())
+      ? `${usage.provider} / ${usage.modelName}`
+      : usage.modelName
+    : usage?.isGleanHostedModel
+      ? "Glean hosted model"
+      : "Not returned by Glean";
+
+  if (modeElement) modeElement.textContent = mode ? (mode === "thinking" ? "Thinking" : "Fast") : "Not available";
+  if (modelElement) modelElement.textContent = model;
+  if (tokensElement) tokensElement.textContent = usage ? formatTokenUsageSummary(usage) : "Not available";
+  if (errorElement) {
+    errorElement.textContent = state?.error ?? "";
+    errorElement.classList.toggle("visible", Boolean(state?.error));
   }
 }
 
-function formatDebugState(state: DebugState | undefined) {
-  return JSON.stringify({
-    request: state?.request ? redactDebugPayload(state.request) : undefined,
-    response: state?.response,
-    error: state?.error,
-    selectedVariantIndex: state?.selectedVariantIndex,
-  }, null, 2);
-}
-
-function redactDebugPayload(payload: DraftRequestPayload | NewEmailRequestPayload | SlackDraftRequestPayload) {
-  return {
-    ...payload,
-    pageUrl: payload.pageUrl.replace(/[#?].*$/, ""),
-  };
+function formatTokenUsageSummary(usage: NonNullable<DraftResponsePayload["tokenUsage"]>) {
+  const source = usage.source === "estimated" ? "approximate" : "Glean reported";
+  return `${formatTokenCount(usage.inputTokens)} in / ${formatTokenCount(usage.outputTokens)} out / ${formatTokenCount(usage.totalTokens)} total (${source})`;
 }
 
 function formatErrorMessage(text: string) {

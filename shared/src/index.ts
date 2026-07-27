@@ -99,7 +99,13 @@ export interface DraftTokenUsage {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  cacheCreationInputTokens?: number | null;
+  cacheReadInputTokens?: number | null;
+  modelName?: string;
+  provider?: string;
+  isGleanHostedModel?: boolean;
   estimatedCostUsd: number | null;
+  estimatedCostSource?: "glean" | "vendor-list-price" | "unavailable";
   source: "glean" | "estimated";
   note: string;
 }

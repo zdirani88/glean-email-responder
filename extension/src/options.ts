@@ -62,7 +62,10 @@ async function confirmPairing(config: ExtensionConfig) {
         "Content-Type": "application/json",
         "x-backend-secret": config.backendSecret || "",
       },
-      body: JSON.stringify({ source: "extension-options" }),
+      body: JSON.stringify({
+        source: "extension-options",
+        extensionVersion: chrome.runtime.getManifest().version,
+      }),
     });
 
     if (!res.ok) {

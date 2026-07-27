@@ -31,11 +31,14 @@ interface HelperStatus {
   bundledExtensionDetail: string;
   extensionManifestVersion?: string;
   bundledExtensionManifestVersion?: string;
+  extensionVersionMatches: boolean;
+  extensionPairedVersion?: string;
   serverError?: string;
 }
 
 interface ExtensionActionResult {
   extensionPath: string;
+  extensionVersion: string;
   warnings: string[];
 }
 
@@ -98,6 +101,9 @@ const clearTokenButton = document.querySelector<HTMLButtonElement>("#clearToken"
 const rotateSecretButton = document.querySelector<HTMLButtonElement>("#rotateSecret");
 const extensionPath = document.querySelector<HTMLElement>("#extensionPath");
 const extensionId = document.querySelector<HTMLElement>("#extensionId");
+const extensionVersion = document.querySelector<HTMLElement>("#extensionVersion");
+const bundledExtensionVersion = document.querySelector<HTMLElement>("#bundledExtensionVersion");
+const pairedExtensionVersion = document.querySelector<HTMLElement>("#pairedExtensionVersion");
 const message = document.querySelector<HTMLElement>("#message");
 
 void refreshStatus();
@@ -250,14 +256,22 @@ function renderStatus(status: HelperStatus) {
   if (tokenState) tokenState.textContent = status.hasToken ? "Token saved securely" : "Token not set";
   if (extensionPath) extensionPath.textContent = status.extensionPath;
   if (extensionId) extensionId.textContent = status.extensionId;
+  if (extensionVersion) extensionVersion.textContent = status.extensionManifestVersion || "Not copied yet";
+  if (bundledExtensionVersion) bundledExtensionVersion.textContent = status.bundledExtensionManifestVersion || "Unavailable";
+  if (pairedExtensionVersion) pairedExtensionVersion.textContent = status.extensionPairedVersion || "Not verified yet";
   renderSetup(status);
 }
 
 function renderSetup(status: HelperStatus) {
   const tokenReady = status.hasToken;
   const serverReady = status.running;
-  const pairReady = Boolean(status.hasLocalSecret && status.extensionPairedAt);
-  const extensionReady = status.bundledExtensionReady && (status.extensionFolderReady || pairReady);
+  const pairReady = Boolean(
+    status.hasLocalSecret &&
+      status.extensionPairedAt &&
+      status.extensionPairedVersion &&
+      status.extensionPairedVersion === status.bundledExtensionManifestVersion,
+  );
+  const extensionReady = status.bundledExtensionReady && status.extensionFolderReady && status.extensionVersionMatches;
   const completed = [tokenReady, serverReady, extensionReady, pairReady].filter(Boolean).length;
   if (setupProgress) setupProgress.style.width = `${Math.round((completed / 4) * 100)}%`;
 
@@ -348,12 +362,12 @@ function formatScopeHint(scopeHint: { hasChat: boolean; hasSearch: boolean; hasC
 }
 
 function formatExtensionCopySuccess(result: ExtensionActionResult) {
-  const base = `Latest extension copied and the folder path is on your clipboard. In Chrome, click Load unpacked and select: ${result.extensionPath}`;
+  const base = `Extension version ${result.extensionVersion} was copied and verified at ${result.extensionPath}. In Chrome, click Load unpacked for the first install or click Reload for an existing install.`;
   return appendWarnings(base, result.warnings);
 }
 
 function formatPairingSuccess(result: ExtensionActionResult) {
-  const base = "Pairing link copied. If Chrome says the page cannot be found, load the Desktop extension folder first, then click Pair extension again.";
+  const base = `Pairing link copied for extension version ${result.extensionVersion}. Open it after reloading that version in Chrome.`;
   return appendWarnings(base, result.warnings);
 }
 
@@ -368,15 +382,16 @@ function getExtensionHealthDetail(status: HelperStatus, pairReady: boolean) {
   }
 
   if (status.extensionFolderReady) {
+    if (!status.extensionVersionMatches) return status.extensionFolderDetail;
     const version = status.extensionManifestVersion ? ` Version ${status.extensionManifestVersion}.` : "";
-    return `Ready at ${status.extensionPath}.${version}`;
+    return `Verified at ${status.extensionPath}.${version}`;
   }
 
-  if (pairReady) {
-    return "Extension pairing is confirmed. Click Refresh extension copy after helper app updates.";
+  if (status.extensionPairedAt && status.extensionPairedVersion !== status.bundledExtensionManifestVersion) {
+    return `Chrome last confirmed version ${status.extensionPairedVersion || "unknown"}; current version is ${status.bundledExtensionManifestVersion || "unknown"}. Reload the extension, then click Pair extension.`;
   }
 
-  return `Click Refresh extension copy. ${status.extensionFolderDetail}`;
+  return `Click Install / refresh extension. ${status.extensionFolderDetail}`;
 }
 
 function readReplySettings(): ReplySettings {

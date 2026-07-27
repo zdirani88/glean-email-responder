@@ -25,6 +25,17 @@ interface GleanChatResponse {
   };
 }
 
+interface TokenUsageFallbacks {
+  modelName?: string;
+  provider?: string;
+  isGleanHostedModel?: boolean;
+}
+
+interface ModelPrice {
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+}
+
 export interface GleanDraftResult {
   draft: string;
   variants: DraftVariant[];
@@ -52,21 +63,22 @@ export async function draftWithGlean(prompt: string, config: AppConfig, requestS
   const chatUrl = `${config.gleanServerUrl.replace(/\/$/, "")}/rest/api/v1/chat`;
   const data = await sendChatRequest(chatUrl, prompt, config, effectiveMode);
 
-  const responseMessages = data.messages ?? data.followUpResults ?? [];
-  const assistantDrafts = responseMessages
-    .filter((message) => message.author === "GLEAN_AI" || message.author === "ASSISTANT")
+  const responseMessages = [...(data.messages ?? []), ...(data.followUpResults ?? [])];
+  const nonUserMessages = responseMessages.filter((message) => message.author?.trim().toUpperCase() !== "USER");
+  const assistantDrafts = uniqueResponseTexts(nonUserMessages
+    .filter(isAssistantMessage)
     .filter(isContentMessage)
     .map(getMessageText)
     .map((text) => text.trim())
     .filter(Boolean)
-    .filter((text) => !isProgressMessage(text));
+    .filter((text) => !isProgressMessage(text)));
 
-  const fallbackDrafts = responseMessages
+  const fallbackDrafts = uniqueResponseTexts(nonUserMessages
     .filter(isContentMessage)
     .map(getMessageText)
     .map((text) => text.trim())
     .filter(Boolean)
-    .filter((text) => !isProgressMessage(text));
+    .filter((text) => !isProgressMessage(text)));
   const cleanedDrafts = (assistantDrafts.length ? assistantDrafts : fallbackDrafts)
     .flatMap(splitDraftOptions)
     .map(cleanDraft)
@@ -174,6 +186,11 @@ function isContentMessage(message: GleanChatMessage) {
   return !messageType || messageType === "CONTENT";
 }
 
+function isAssistantMessage(message: GleanChatMessage) {
+  const author = message.author?.trim().toUpperCase();
+  return author === "GLEAN_AI" || author === "ASSISTANT";
+}
+
 function isContentFragment(fragment: { messageType?: string; type?: string }) {
   const messageType = normalizeMessageType(fragment.messageType ?? fragment.type);
   return !messageType || messageType === "CONTENT";
@@ -197,6 +214,16 @@ function isProgressMessage(text: string) {
     normalized === "drafting your reply" ||
     normalized === "drafting your reply..."
   );
+}
+
+function uniqueResponseTexts(values: string[]) {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = value.replace(/\s+/g, " ").trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number) {
@@ -272,6 +299,9 @@ function toDraftVariants(values: string[]): DraftVariant[] {
 }
 
 function extractTokenUsage(response: GleanChatResponse): DraftTokenUsage | undefined {
+  const fallbacks: TokenUsageFallbacks = {
+    ...extractModelMetadata(response),
+  };
   const candidates = [
     response.usage,
     response.tokenUsage,
@@ -280,36 +310,96 @@ function extractTokenUsage(response: GleanChatResponse): DraftTokenUsage | undef
     response.metadata?.tokenUsage,
     response.responseMetadata?.usage,
     response.responseMetadata?.tokenUsage,
+    ...collectTokenUsageCandidates(response),
   ];
 
+  const usages: DraftTokenUsage[] = [];
   for (const candidate of candidates) {
-    const usage = normalizeTokenUsage(candidate);
-    if (usage) return usage;
+    const usage = normalizeTokenUsage(candidate, fallbacks);
+    if (usage) usages.push(usage);
   }
 
-  return undefined;
+  return usages
+    .sort((a, b) => scoreTokenUsage(b) - scoreTokenUsage(a))
+    .at(0);
 }
 
-function normalizeTokenUsage(value: unknown): DraftTokenUsage | undefined {
+function normalizeTokenUsage(value: unknown, fallbacks: TokenUsageFallbacks = {}): DraftTokenUsage | undefined {
   if (!isRecord(value)) return undefined;
 
-  const inputTokens = readNumberField(value, ["inputTokens", "input_tokens", "promptTokens", "prompt_tokens", "requestTokens", "request_tokens"]);
-  const outputTokens = readNumberField(value, ["outputTokens", "output_tokens", "completionTokens", "completion_tokens", "generatedTokens", "generated_tokens", "responseTokens", "response_tokens"]);
-  const suppliedTotalTokens = readNumberField(value, ["totalTokens", "total_tokens", "tokens"]);
+  const inputTokens = readNumberField(value, [
+    "inputTokens",
+    "input_tokens",
+    "inputTokenCount",
+    "input_token_count",
+    "promptTokens",
+    "prompt_tokens",
+    "promptTokenCount",
+    "prompt_token_count",
+    "requestTokens",
+    "request_tokens",
+    "tokensIn",
+    "tokens_in",
+  ]);
+  const outputTokens = readNumberField(value, [
+    "outputTokens",
+    "output_tokens",
+    "outputTokenCount",
+    "output_token_count",
+    "completionTokens",
+    "completion_tokens",
+    "completionTokenCount",
+    "completion_token_count",
+    "generatedTokens",
+    "generated_tokens",
+    "responseTokens",
+    "response_tokens",
+    "tokensOut",
+    "tokens_out",
+  ]);
+  const suppliedTotalTokens = readNumberField(value, ["totalTokens", "total_tokens", "totalTokenCount", "total_token_count", "tokens", "tokenCount", "token_count"]);
   const totalTokens = suppliedTotalTokens ?? (inputTokens !== null && outputTokens !== null ? inputTokens + outputTokens : null);
+  const cacheCreationInputTokens = readNumberField(value, [
+    "cacheCreationInputTokens",
+    "cache_creation_input_tokens",
+    "cacheWriteInputTokens",
+    "cache_write_input_tokens",
+    "cachedInputCreationTokens",
+    "cached_input_creation_tokens",
+  ]);
+  const cacheReadInputTokens = readNumberField(value, [
+    "cacheReadInputTokens",
+    "cache_read_input_tokens",
+    "cachedInputTokens",
+    "cached_input_tokens",
+    "cacheHitInputTokens",
+    "cache_hit_input_tokens",
+  ]);
   const estimatedCostUsd = readNumberField(value, ["estimatedCostUsd", "estimated_cost_usd", "costUsd", "cost_usd", "totalCostUsd", "total_cost_usd"]);
+  const modelName = readStringField(value, ["model", "modelName", "model_name", "llmModel", "llm_model", "modelId", "model_id", "deploymentModel"]) ?? fallbacks.modelName;
+  const provider = readStringField(value, ["provider", "modelProvider", "model_provider", "llmProvider", "llm_provider", "vendor"]) ?? fallbacks.provider;
+  const isGleanHostedModel = readBooleanField(value, ["isGleanHostedModel", "is_glean_hosted_model", "gleanHostedModel", "glean_hosted_model"]) ?? fallbacks.isGleanHostedModel;
 
-  if (inputTokens === null && outputTokens === null && totalTokens === null && estimatedCostUsd === null) {
+  if (inputTokens === null && outputTokens === null && totalTokens === null && estimatedCostUsd === null && !modelName && !provider) {
     return undefined;
   }
+  const vendorCost = estimatedCostUsd === null ? estimateVendorListPriceCost(modelName, inputTokens, outputTokens) : null;
+  const resolvedCost = estimatedCostUsd ?? vendorCost;
+  const estimatedCostSource = estimatedCostUsd !== null ? "glean" : vendorCost !== null ? "vendor-list-price" : "unavailable";
 
   return {
     inputTokens,
     outputTokens,
     totalTokens,
-    estimatedCostUsd,
+    ...(cacheCreationInputTokens !== null ? { cacheCreationInputTokens } : {}),
+    ...(cacheReadInputTokens !== null ? { cacheReadInputTokens } : {}),
+    ...(modelName ? { modelName } : {}),
+    ...(provider ? { provider } : {}),
+    ...(typeof isGleanHostedModel === "boolean" ? { isGleanHostedModel } : {}),
+    estimatedCostUsd: resolvedCost,
+    estimatedCostSource,
     source: "glean",
-    note: estimatedCostUsd === null ? "Glean returned token usage metadata without cost metadata." : "Glean returned token usage metadata.",
+    note: formatGleanUsageNote(estimatedCostSource, modelName),
   };
 }
 
@@ -321,9 +411,108 @@ function estimateTokenUsage(prompt: string, draft: string): DraftTokenUsage {
     outputTokens,
     totalTokens: inputTokens + outputTokens,
     estimatedCostUsd: null,
+    estimatedCostSource: "unavailable",
     source: "estimated",
-    note: "Glean did not return token usage metadata, so this is an approximate count based on text length.",
+    note: "Glean did not return model or token usage metadata, so this token count is an approximate text-length estimate and cost is unavailable.",
   };
+}
+
+function collectTokenUsageCandidates(value: unknown, depth = 0, seen = new Set<unknown>()): Record<string, unknown>[] {
+  if (depth > 8 || !isRecord(value) || seen.has(value)) return [];
+  seen.add(value);
+
+  const candidates: Record<string, unknown>[] = [];
+  if (looksLikeUsageRecord(value)) candidates.push(value);
+
+  for (const [key, child] of Object.entries(value)) {
+    const normalizedKey = normalizeKey(key);
+    if (isRecord(child)) {
+      if (normalizedKey.includes("usage") || normalizedKey.includes("token") || normalizedKey.includes("llm") || normalizedKey.includes("model")) {
+        candidates.push(child);
+      }
+      candidates.push(...collectTokenUsageCandidates(child, depth + 1, seen));
+      continue;
+    }
+
+    if (Array.isArray(child)) {
+      for (const item of child) {
+        candidates.push(...collectTokenUsageCandidates(item, depth + 1, seen));
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function looksLikeUsageRecord(record: Record<string, unknown>) {
+  return Object.keys(record)
+    .map(normalizeKey)
+    .some((key) => key.includes("token") || key.includes("cost") || key === "model" || key.includes("modelname") || key.includes("provider"));
+}
+
+function extractModelMetadata(value: unknown): TokenUsageFallbacks {
+  const records = collectTokenUsageCandidates(value);
+  for (const record of records) {
+    const modelName = readStringField(record, ["model", "modelName", "model_name", "llmModel", "llm_model", "modelId", "model_id", "deploymentModel"]);
+    const provider = readStringField(record, ["provider", "modelProvider", "model_provider", "llmProvider", "llm_provider", "vendor"]);
+    const isGleanHostedModel = readBooleanField(record, ["isGleanHostedModel", "is_glean_hosted_model", "gleanHostedModel", "glean_hosted_model"]);
+    if (modelName || provider || typeof isGleanHostedModel === "boolean") {
+      return {
+        ...(modelName ? { modelName } : {}),
+        ...(provider ? { provider } : {}),
+        ...(typeof isGleanHostedModel === "boolean" ? { isGleanHostedModel } : {}),
+      };
+    }
+  }
+
+  return {};
+}
+
+function scoreTokenUsage(usage: DraftTokenUsage) {
+  return [
+    usage.inputTokens !== null ? 4 : 0,
+    usage.outputTokens !== null ? 4 : 0,
+    usage.totalTokens !== null ? 2 : 0,
+    usage.estimatedCostUsd !== null ? 2 : 0,
+    usage.modelName ? 2 : 0,
+    usage.provider ? 1 : 0,
+  ].reduce((total, score) => total + score, 0);
+}
+
+function formatGleanUsageNote(costSource: DraftTokenUsage["estimatedCostSource"], modelName: string | undefined) {
+  if (costSource === "glean") return "Glean returned token usage and cost metadata.";
+  if (costSource === "vendor-list-price") {
+    return `Glean returned usage${modelName ? ` for ${modelName}` : ""}; cost is estimated from public vendor list pricing and may not match Glean billing.`;
+  }
+  return "Glean returned usage metadata without cost metadata. Cost is unavailable unless Glean exposes cost or a known model is detected.";
+}
+
+function estimateVendorListPriceCost(modelName: string | undefined, inputTokens: number | null, outputTokens: number | null) {
+  if (!modelName || inputTokens === null || outputTokens === null) return null;
+  const price = findModelPrice(modelName);
+  if (!price) return null;
+  return (inputTokens / 1_000_000) * price.inputUsdPerMillion + (outputTokens / 1_000_000) * price.outputUsdPerMillion;
+}
+
+function findModelPrice(modelName: string): ModelPrice | undefined {
+  const normalized = normalizeModelName(modelName);
+  const entries: Array<[RegExp, ModelPrice]> = [
+    [/gpt[-_ ]?4\.1[-_ ]?nano/, { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.4 }],
+    [/gpt[-_ ]?4\.1[-_ ]?mini/, { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 }],
+    [/gpt[-_ ]?4\.1(?![-_ ]?(mini|nano))/, { inputUsdPerMillion: 2, outputUsdPerMillion: 8 }],
+    [/gpt[-_ ]?4o[-_ ]?mini/, { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6 }],
+    [/gpt[-_ ]?4o(?![-_ ]?mini)/, { inputUsdPerMillion: 2.5, outputUsdPerMillion: 10 }],
+    [/o4[-_ ]?mini|o3[-_ ]?mini/, { inputUsdPerMillion: 1.1, outputUsdPerMillion: 4.4 }],
+    [/claude[-_ ]?(sonnet[-_ ]?)?4|claude[-_ ]?3\.7[-_ ]?sonnet|claude[-_ ]?3(\.5|[-_ ]?5)?[-_ ]?sonnet|claude[-_ ]?sonnet[-_ ]?(4|3\.7|3(\.5|[-_ ]?5)?)/, { inputUsdPerMillion: 3, outputUsdPerMillion: 15 }],
+    [/claude[-_ ]?3\.5[-_ ]?haiku|claude[-_ ]?haiku[-_ ]?3\.5/, { inputUsdPerMillion: 0.8, outputUsdPerMillion: 4 }],
+    [/claude[-_ ]?3[-_ ]?haiku/, { inputUsdPerMillion: 0.25, outputUsdPerMillion: 1.25 }],
+    [/claude[-_ ]?(opus[-_ ]?)?4(\.1)?|claude[-_ ]?3[-_ ]?opus|claude[-_ ]?opus[-_ ]?(4(\.1)?|3)/, { inputUsdPerMillion: 15, outputUsdPerMillion: 75 }],
+  ];
+  return entries.find(([pattern]) => pattern.test(normalized))?.[1];
+}
+
+function normalizeModelName(value: string) {
+  return value.trim().toLowerCase();
 }
 
 function readNumberField(record: Record<string, unknown>, fieldNames: string[]) {
@@ -335,6 +524,38 @@ function readNumberField(record: Record<string, unknown>, fieldNames: string[]) 
   return null;
 }
 
+function readStringField(record: Record<string, unknown>, fieldNames: string[]) {
+  for (const fieldName of fieldNames) {
+    const direct = normalizeString(record[fieldName]);
+    if (direct) return direct;
+    const normalizedFieldName = normalizeKey(fieldName);
+    for (const [key, value] of Object.entries(record)) {
+      if (normalizeKey(key) === normalizedFieldName) {
+        const normalized = normalizeString(value);
+        if (normalized) return normalized;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function readBooleanField(record: Record<string, unknown>, fieldNames: string[]) {
+  for (const fieldName of fieldNames) {
+    const direct = normalizeBoolean(record[fieldName]);
+    if (direct !== null) return direct;
+    const normalizedFieldName = normalizeKey(fieldName);
+    for (const [key, value] of Object.entries(record)) {
+      if (normalizeKey(key) === normalizedFieldName) {
+        const normalized = normalizeBoolean(value);
+        if (normalized !== null) return normalized;
+      }
+    }
+  }
+
+  return undefined;
+}
+
 function normalizeNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -343,6 +564,25 @@ function normalizeNumber(value: unknown) {
   }
 
   return null;
+}
+
+function normalizeString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function normalizeBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true") return true;
+    if (normalized === "false") return false;
+  }
+
+  return null;
+}
+
+function normalizeKey(value: string) {
+  return value.replace(/[^a-z0-9]/gi, "").toLowerCase();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

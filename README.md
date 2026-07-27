@@ -105,8 +105,9 @@ The helper app:
 - Binds the backend to `127.0.0.1` and requires a generated local extension pairing secret
 - Stores the Glean Client API token with Electron secure storage
 - Tests the Glean token before use
-- Bundles the built Chrome extension and copies it to `~/Desktop/Gmail Glean Reply Extension` for Load unpacked setup
+- Bundles the built Chrome extension, copies it to a writable install folder, and verifies the copied manifest version before opening Chrome setup
 - Opens a one-click pairing link so the extension can save the backend URL and local secret automatically
+- Records the extension version reported by Chrome during pairing, so an old loaded copy is visible in the helper status
 - Lets the user clear the Glean token or rotate the local extension pairing secret
 - Can start at login
 - Shows Chrome extension setup steps
@@ -148,6 +149,8 @@ For the Glean Chat API, Fast maps to `agentConfig.mode = QUICK`; Thinking maps t
 - Returns inline errors without clearing composer content.
 - Inserts plain text into the focused Gmail editor.
 - Never auto-sends.
+- Shows exact Glean token/model metadata when the Chat API response includes it, otherwise falls back to approximate token counts. The authoritative place for exact model/provider/token accounting may be Glean customer event logs such as `LLM_CALL`.
+- Vendor-list-price cost estimates are directional only and may not match Glean billing or contracted pricing.
 - Does not request Gmail API scopes or calendar tokens. Calendar availability is requested only through Glean actions when Glean supports it.
 
 ## Useful Commands

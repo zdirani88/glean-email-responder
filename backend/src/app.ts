@@ -76,8 +76,9 @@ export function createBackendApp(config: AppConfig) {
     });
   });
 
-  app.post("/pairing-confirmed", async (_req, res) => {
-    await config.onPairingConfirmed?.();
+  app.post("/pairing-confirmed", async (req, res) => {
+    const extensionVersion = typeof req.body?.extensionVersion === "string" ? req.body.extensionVersion.trim().slice(0, 32) : undefined;
+    await config.onPairingConfirmed?.(extensionVersion);
     res.json({ ok: true });
   });
 
