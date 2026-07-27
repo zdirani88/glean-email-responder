@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, ipcMain, safeStorage, shell } from "elec
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chmod, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
@@ -16,6 +16,7 @@ interface HelperConfig {
   replySettings: ReplySettings;
   encryptedToken?: string;
   encryptedLocalSecret?: string;
+  extensionInstallPath?: string;
   launchAtLogin: boolean;
   extensionPairedAt?: string;
 }
@@ -34,7 +35,24 @@ interface PublicStatus {
   extensionPairedAt?: string;
   extensionFolderReady: boolean;
   bundledExtensionReady: boolean;
+  extensionFolderDetail: string;
+  bundledExtensionDetail: string;
+  extensionManifestVersion?: string;
+  bundledExtensionManifestVersion?: string;
   serverError?: string;
+}
+
+interface ExtensionActionResult {
+  extensionPath: string;
+  warnings: string[];
+}
+
+interface ExtensionFolderStatus {
+  path: string;
+  ready: boolean;
+  detail: string;
+  missingFiles: string[];
+  manifestVersion?: string;
 }
 
 const DEFAULT_CONFIG: HelperConfig = {
@@ -46,6 +64,8 @@ const DEFAULT_CONFIG: HelperConfig = {
 };
 const BACKEND_HOST = "127.0.0.1";
 const EXTENSION_ID = "odjbnkdimjemoifcndjpopoiifpdnlbo";
+const EXTENSION_FOLDER_NAME = "Gmail Glean Reply Extension";
+const REQUIRED_EXTENSION_FILES = ["manifest.json", "background.js", "contentScript.js", "options.html", "options.js"];
 
 const execFileAsync = promisify(execFile);
 let mainWindow: BrowserWindow | undefined;
@@ -122,17 +142,23 @@ ipcMain.handle("helper:open-url", async (_event, url: string) => {
 
 ipcMain.handle("helper:open-extension-folder", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
-  const extensionPath = await prepareInstallableExtensionFolder();
-  await openChromeUrl("chrome://extensions");
-  const result = await shell.openPath(extensionPath);
-  if (result) throw new Error(result);
+  const { extensionPath, warnings } = await prepareInstallableExtensionFolder();
+  clipboard.writeText(extensionPath);
+  await captureWarning(warnings, "Chrome extensions page did not open automatically.", () => openChromeUrl("chrome://extensions"));
+  await captureWarning(warnings, "Finder did not open the copied extension folder automatically.", async () => {
+    const result = await shell.openPath(extensionPath);
+    if (result) throw new Error(result);
+  });
+  return { extensionPath, warnings } satisfies ExtensionActionResult;
 });
 
 ipcMain.handle("helper:pair-extension", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
-  await prepareInstallableExtensionFolder();
-  clipboard.writeText(getExtensionPairingUrl());
-  await openChromeUrl(getExtensionPairingUrl());
+  const { extensionPath, warnings } = await prepareInstallableExtensionFolder();
+  const pairingUrl = getExtensionPairingUrl();
+  clipboard.writeText(pairingUrl);
+  await captureWarning(warnings, "Pairing page did not open automatically. The pairing link is copied to your clipboard.", () => openChromeUrl(pairingUrl));
+  return { extensionPath, warnings } satisfies ExtensionActionResult;
 });
 
 ipcMain.handle("helper:copy-pairing-link", async (event) => {
@@ -246,6 +272,8 @@ function toBackendConfig(config: HelperConfig, token?: string): AppConfig {
 function getPublicStatus(): PublicStatus {
   const bundledExtensionPath = getBundledExtensionPath();
   const installableExtensionPath = getInstallableExtensionPath();
+  const bundledExtension = getExtensionFolderStatus(bundledExtensionPath);
+  const installableExtension = getExtensionFolderStatus(installableExtensionPath);
   const status: PublicStatus = {
     running: Boolean(server?.listening),
     port: currentConfig.port,
@@ -257,9 +285,13 @@ function getPublicStatus(): PublicStatus {
     launchAtLogin: currentConfig.launchAtLogin,
     extensionPath: installableExtensionPath,
     extensionId: EXTENSION_ID,
-    extensionFolderReady: existsSync(join(installableExtensionPath, "manifest.json")),
-    bundledExtensionReady: existsSync(join(bundledExtensionPath, "manifest.json")),
+    extensionFolderReady: installableExtension.ready,
+    bundledExtensionReady: bundledExtension.ready,
+    extensionFolderDetail: installableExtension.detail,
+    bundledExtensionDetail: bundledExtension.detail,
   };
+  if (installableExtension.manifestVersion) status.extensionManifestVersion = installableExtension.manifestVersion;
+  if (bundledExtension.manifestVersion) status.bundledExtensionManifestVersion = bundledExtension.manifestVersion;
   if (currentConfig.extensionPairedAt) status.extensionPairedAt = currentConfig.extensionPairedAt;
   if (lastServerError) status.serverError = lastServerError;
   return status;
@@ -285,34 +317,112 @@ function getBundledExtensionPath() {
 }
 
 function getInstallableExtensionPath() {
-  return join(app.getPath("desktop"), "Gmail Glean Reply Extension");
+  return currentConfig.extensionInstallPath || getDesktopExtensionPath();
 }
 
 async function prepareInstallableExtensionFolder() {
   const source = getBundledExtensionPath();
-  const destination = getInstallableExtensionPath();
-  const destinationManifest = join(destination, "manifest.json");
+  const warnings: string[] = [];
+  const sourceStatus = getExtensionFolderStatus(source);
 
-  if (!existsSync(join(source, "manifest.json"))) {
-    throw new Error(`Bundled extension folder was not found at ${source}`);
+  if (!sourceStatus.ready) {
+    throw new Error(`Bundled extension folder is incomplete at ${source}. ${sourceStatus.detail}`);
   }
 
-  await mkdir(dirname(destination), { recursive: true });
-  await rm(destination, { recursive: true, force: true });
-  await cp(source, destination, { recursive: true, force: true });
-  if (!existsSync(destinationManifest)) {
-    throw new Error(`Extension copy failed. Expected manifest at ${destinationManifest}`);
+  const destinations = uniquePaths([getDesktopExtensionPath(), currentConfig.extensionInstallPath, getFallbackExtensionPath()]);
+  for (const destination of destinations) {
+    try {
+      await copyExtensionFolder(source, destination);
+      currentConfig = { ...currentConfig, extensionInstallPath: destination };
+      await saveHelperConfig(currentConfig);
+      if (destination !== getDesktopExtensionPath()) {
+        warnings.push(`macOS did not allow copying to Desktop, so the extension was copied to ${destination}.`);
+      }
+      return { extensionPath: destination, warnings };
+    } catch (error) {
+      warnings.push(`Could not copy extension to ${destination}: ${toErrorMessage(error)}`);
+    }
   }
-  return destination;
+
+  throw new Error(`Extension copy failed. ${warnings.join(" ")}`);
 }
 
 async function openChromeUrl(url: string) {
   if (process.platform === "darwin") {
-    await execFileAsync("open", ["-a", "Google Chrome", url]);
+    try {
+      await execFileAsync("open", ["-b", "com.google.Chrome", url]);
+      return;
+    } catch {
+      await execFileAsync("open", ["-a", "Google Chrome", url]);
+    }
     return;
   }
 
   await shell.openExternal(url);
+}
+
+async function captureWarning(warnings: string[], message: string, action: () => Promise<void>) {
+  try {
+    await action();
+  } catch (error) {
+    const detail = error instanceof Error && error.message ? ` ${error.message}` : "";
+    warnings.push(`${message}${detail}`);
+  }
+}
+
+async function copyExtensionFolder(source: string, destination: string) {
+  await mkdir(dirname(destination), { recursive: true });
+  await rm(destination, { recursive: true, force: true });
+  await cp(source, destination, { recursive: true, force: true });
+  const copiedStatus = getExtensionFolderStatus(destination);
+  if (!copiedStatus.ready) {
+    throw new Error(copiedStatus.detail);
+  }
+}
+
+function getExtensionFolderStatus(path: string): ExtensionFolderStatus {
+  const missingFiles = REQUIRED_EXTENSION_FILES.filter((file) => !existsSync(join(path, file)));
+  const manifestVersion = readExtensionManifestVersion(path);
+  const ready = missingFiles.length === 0;
+  return {
+    path,
+    ready,
+    detail: ready
+      ? manifestVersion
+        ? `Ready. Extension version ${manifestVersion}.`
+        : "Ready."
+      : existsSync(path)
+        ? `Missing ${missingFiles.join(", ")}.`
+        : "Folder has not been copied yet.",
+    missingFiles,
+    ...(manifestVersion ? { manifestVersion } : {}),
+  };
+}
+
+function readExtensionManifestVersion(path: string) {
+  try {
+    const raw = readFileSync(join(path, "manifest.json"), "utf8");
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return typeof parsed.version === "string" ? parsed.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getDesktopExtensionPath() {
+  return join(app.getPath("desktop"), EXTENSION_FOLDER_NAME);
+}
+
+function getFallbackExtensionPath() {
+  return join(app.getPath("userData"), EXTENSION_FOLDER_NAME);
+}
+
+function uniquePaths(paths: Array<string | undefined>) {
+  return Array.from(new Set(paths.filter((path): path is string => Boolean(path))));
+}
+
+function toErrorMessage(error: unknown) {
+  return error instanceof Error && error.message ? error.message : String(error || "Unknown error.");
 }
 
 function getExtensionPairingUrl() {

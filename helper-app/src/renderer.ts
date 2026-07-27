@@ -27,7 +27,16 @@ interface HelperStatus {
   extensionPairedAt?: string;
   extensionFolderReady: boolean;
   bundledExtensionReady: boolean;
+  extensionFolderDetail: string;
+  bundledExtensionDetail: string;
+  extensionManifestVersion?: string;
+  bundledExtensionManifestVersion?: string;
   serverError?: string;
+}
+
+interface ExtensionActionResult {
+  extensionPath: string;
+  warnings: string[];
 }
 
 interface HelperApi {
@@ -36,8 +45,8 @@ interface HelperApi {
   testGlean(input: { gleanServerUrl: string; token?: string }): Promise<{ ok: true; tokenExpiresAt?: string; tokenScopeHint?: { hasChat: boolean; hasSearch: boolean; hasCalendar: boolean } }>;
   restartServer(): Promise<HelperStatus>;
   openUrl(url: string): Promise<void>;
-  openExtensionFolder(): Promise<void>;
-  pairExtension(): Promise<void>;
+  openExtensionFolder(): Promise<ExtensionActionResult>;
+  pairExtension(): Promise<ExtensionActionResult>;
   copyPairingLink(): Promise<void>;
   clearGleanToken(): Promise<HelperStatus>;
   rotateLocalSecret(): Promise<HelperStatus>;
@@ -147,20 +156,23 @@ restartButton?.addEventListener("click", async () => {
   });
 });
 
-openExtensionsButton?.addEventListener("click", () => {
-  void window.gmailGleanHelper.openUrl("chrome://extensions");
+openExtensionsButton?.addEventListener("click", async () => {
+  await runAction("Chrome extensions opened.", async () => {
+    await window.gmailGleanHelper.openUrl("chrome://extensions");
+  });
 });
 
 openExtensionFolderButton?.addEventListener("click", async () => {
-  await runAction("Latest extension copied to Desktop. In Chrome, click Reload on Glean Response Assistant, or click Load unpacked and select the Desktop folder if it is not installed yet.", async () => {
-    await window.gmailGleanHelper.openExtensionFolder();
+  await runAction(undefined, async () => {
+    const result = await window.gmailGleanHelper.openExtensionFolder();
     renderStatus(await window.gmailGleanHelper.getStatus());
+    setMessage(formatExtensionCopySuccess(result), result.warnings.length ? "neutral" : "success");
   });
 });
 
 pairExtensionButton?.addEventListener("click", async () => {
   await runAction(undefined, async () => {
-    await window.gmailGleanHelper.pairExtension();
+    const result = await window.gmailGleanHelper.pairExtension();
     const status = await waitForPairingConfirmation();
     renderStatus(status);
     if (status.extensionPairedAt) {
@@ -168,7 +180,7 @@ pairExtensionButton?.addEventListener("click", async () => {
       return;
     }
 
-    setMessage("Pairing link opened and copied. If Chrome says the page cannot be found, first load the Desktop extension folder in chrome://extensions, then click Pair extension again.", "neutral");
+    setMessage(formatPairingSuccess(result), "neutral");
   });
 });
 
@@ -190,8 +202,10 @@ rotateSecretButton?.addEventListener("click", async () => {
   });
 });
 
-openShortcutsButton?.addEventListener("click", () => {
-  void window.gmailGleanHelper.openUrl("chrome://extensions/shortcuts");
+openShortcutsButton?.addEventListener("click", async () => {
+  await runAction("Chrome shortcuts opened.", async () => {
+    await window.gmailGleanHelper.openUrl("chrome://extensions/shortcuts");
+  });
 });
 
 async function waitForPairingConfirmation() {
@@ -242,8 +256,8 @@ function renderStatus(status: HelperStatus) {
 function renderSetup(status: HelperStatus) {
   const tokenReady = status.hasToken;
   const serverReady = status.running;
-  const extensionReady = status.extensionFolderReady && status.bundledExtensionReady;
   const pairReady = Boolean(status.hasLocalSecret && status.extensionPairedAt);
+  const extensionReady = status.bundledExtensionReady && (status.extensionFolderReady || pairReady);
   const completed = [tokenReady, serverReady, extensionReady, pairReady].filter(Boolean).length;
   if (setupProgress) setupProgress.style.width = `${Math.round((completed / 4) * 100)}%`;
 
@@ -264,7 +278,7 @@ function renderSetup(status: HelperStatus) {
         ? "Not confirmed. Click Pair extension, then reload Gmail."
         : "Missing local secret. Rotate pairing secret."
   );
-  setHealth(healthExtension, extensionReady, "Extension folder", extensionReady ? "Latest copy is ready on Desktop." : "Click Refresh extension copy.", status.bundledExtensionReady);
+  setHealth(healthExtension, extensionReady, "Extension folder", getExtensionHealthDetail(status, pairReady), status.bundledExtensionReady);
 }
 
 function formatRelativeTime(value: string | undefined) {
@@ -325,10 +339,44 @@ function formatGleanTestSuccess(tokenExpiresAt: string | undefined, tokenScopeHi
 }
 
 function formatScopeHint(scopeHint: { hasChat: boolean; hasSearch: boolean; hasCalendar: boolean } | undefined) {
-  if (!scopeHint) return " Calendar action access could not be detected from this token, scheduling will still ask Glean to check availability when possible.";
+  if (!scopeHint) return " Calendar action access cannot be confirmed from this token. Scheduling will still ask Glean to check availability when your tenant has a calendar action enabled.";
   const required = scopeHint.hasChat && scopeHint.hasSearch;
-  const calendar = scopeHint.hasCalendar ? " Calendar scope appears present." : " Calendar scope was not visible in the token. Scheduling drafts can still work if Glean enables the calendar action server-side, but verify suggested times before sending.";
+  const calendar = scopeHint.hasCalendar
+    ? " Calendar-related access appears in the token, but final availability checks still depend on your Glean tenant's enabled actions."
+    : " Calendar access was not visible in the token. That may be normal if Glean exposes calendar availability as a tenant action instead of a token scope. Verify suggested times before sending.";
   return required ? calendar : " CHAT or SEARCH scope was not visible in the token. Create a token with CHAT and SEARCH scopes." + calendar;
+}
+
+function formatExtensionCopySuccess(result: ExtensionActionResult) {
+  const base = `Latest extension copied and the folder path is on your clipboard. In Chrome, click Load unpacked and select: ${result.extensionPath}`;
+  return appendWarnings(base, result.warnings);
+}
+
+function formatPairingSuccess(result: ExtensionActionResult) {
+  const base = "Pairing link copied. If Chrome says the page cannot be found, load the Desktop extension folder first, then click Pair extension again.";
+  return appendWarnings(base, result.warnings);
+}
+
+function appendWarnings(base: string, warnings: string[]) {
+  if (!warnings.length) return base;
+  return `${base} ${warnings.join(" ")}`;
+}
+
+function getExtensionHealthDetail(status: HelperStatus, pairReady: boolean) {
+  if (!status.bundledExtensionReady) {
+    return `Packaged extension problem: ${status.bundledExtensionDetail}`;
+  }
+
+  if (status.extensionFolderReady) {
+    const version = status.extensionManifestVersion ? ` Version ${status.extensionManifestVersion}.` : "";
+    return `Ready at ${status.extensionPath}.${version}`;
+  }
+
+  if (pairReady) {
+    return "Extension pairing is confirmed. Click Refresh extension copy after helper app updates.";
+  }
+
+  return `Click Refresh extension copy. ${status.extensionFolderDetail}`;
 }
 
 function readReplySettings(): ReplySettings {
@@ -375,7 +423,7 @@ function toFriendlyError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || "Something went wrong.");
   const text = raw.toLowerCase();
   if (text.includes("glean token") || text.includes("token problem") || text.includes("please authenticate") || text.includes("authenticate") || text.includes("glean chat 401") || text.includes("glean chat 403")) {
-    return "Glean token problem: paste a fresh Client API token with CHAT and SEARCH scopes. For scheduling, add calendar or Google Calendar scopes if available. Then click Save and Test Glean.";
+    return "Glean token problem: paste a fresh Client API token with CHAT and SEARCH scopes. For scheduling, your Glean tenant also needs a calendar/free-busy action enabled. Then click Save and Test Glean.";
   }
   if (text.includes("not paired") || text.includes("pair extension") || text.includes("extension is not paired") || text.includes("pairing problem")) {
     return "Pairing problem: click Pair extension, then reload Gmail and try again.";
@@ -384,7 +432,7 @@ function toFriendlyError(error: unknown) {
     return "Helper connection problem: click Restart server. If that does not work, quit and reopen Gmail Glean Helper.";
   }
   if (text.includes("403")) {
-    return "Access problem: check your Glean token scopes. For scheduling, confirm calendar action access is enabled in Glean. Then click Save and Test Glean.";
+    return "Access problem: check your Glean token scopes. For scheduling, confirm a calendar/free-busy action is enabled in Glean. Then click Save and Test Glean.";
   }
   if (text.includes("401")) {
     return "Authentication problem: click Test Glean. If it fails, replace your Glean token. If it passes, click Pair extension.";

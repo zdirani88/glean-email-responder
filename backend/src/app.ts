@@ -324,10 +324,10 @@ function toFriendlyDraftError(message: string) {
     return "Glean is not configured: Open Gmail Glean Helper, enter your Glean server URL and Client API token, click Save, then Test Glean.";
   }
   if (normalized.includes("empty draft")) {
-    return "No draft returned: Try again with a clearer instruction. If this was a scheduling request, confirm your Glean token has calendar action access.";
+    return "No draft returned: Try again with a clearer instruction. If this was a scheduling request, confirm your Glean tenant has a calendar action enabled.";
   }
   if (normalized.includes("calendar") || normalized.includes("free slots")) {
-    return "Calendar check problem: Confirm your Glean token includes calendar or Google Calendar action access, then click Test Glean and try again.";
+    return "Calendar check problem: Confirm your Glean tenant has a calendar/free-busy action enabled, then click Test Glean and try again.";
   }
   return message;
 }
@@ -391,7 +391,7 @@ function buildReplyGroundingSources(payload: ValidDraftRequest, schedulingIntent
   if (payload.currentDraft) sources.push({ label: "Current draft", detail: "Existing text in the reply box was used as draft context." });
   if (payload.userInstruction) sources.push({ label: "User instruction", detail: "The note typed in the Glean reply panel was included." });
   sources.push({ label: "Glean mode", detail: effectiveMode === "thinking" ? "Thinking mode was used for deeper reasoning." : "Fast mode was used for a quick draft." });
-  if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through Glean's Google Calendar/free-slots action if your token and Glean tenant support it." });
+  if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through any available Glean calendar/free-busy action. This app does not connect to Google Calendar directly." });
   return sources;
 }
 
@@ -403,7 +403,7 @@ function buildNewEmailGroundingSources(payload: ValidNewEmailRequest, scheduling
   if (payload.currentDraft) sources.push({ label: "Current draft", detail: "Existing text in the compose body was used as draft context." });
   if (payload.recipientsVisible.length) sources.push({ label: "Visible recipients", detail: `${payload.recipientsVisible.length} visible recipient${payload.recipientsVisible.length === 1 ? "" : "s"} were included.` });
   sources.push({ label: "Glean mode", detail: effectiveMode === "thinking" ? "Thinking mode was used for deeper reasoning." : "Fast mode was used for a quick draft." });
-  if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through Glean's Google Calendar/free-slots action if your token and Glean tenant support it." });
+  if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through any available Glean calendar/free-busy action. This app does not connect to Google Calendar directly." });
   return sources;
 }
 
@@ -415,7 +415,7 @@ function buildSlackGroundingSources(payload: ValidSlackDraftRequest, schedulingI
   if (payload.currentDraft) sources.push({ label: "Current draft", detail: "Existing text in the Slack composer was used as draft context." });
   if (payload.userInstruction) sources.push({ label: "User instruction", detail: "The note typed in the Glean panel was included." });
   sources.push({ label: "Glean mode", detail: effectiveMode === "thinking" ? "Thinking mode was used for deeper reasoning." : "Fast mode was used for a quick draft." });
-  if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through Glean's Google Calendar/free-slots action if your token and Glean tenant support it." });
+  if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through any available Glean calendar/free-busy action. This app does not connect to Google Calendar directly." });
   return sources;
 }
 
@@ -426,7 +426,7 @@ function buildCalendarStatus(schedulingIntent: boolean): DraftCalendarStatus {
 
   return {
     requested: true,
-    detail: "Scheduling language detected. The draft prompt asked Glean to check real availability using its Google Calendar/free-slots action when available. This app does not connect to Google Calendar directly.",
+    detail: "Scheduling language detected. The draft prompt asked Glean to check real availability using any available calendar/free-busy action. This app does not connect to Google Calendar directly.",
   };
 }
 

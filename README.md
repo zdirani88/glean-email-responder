@@ -120,10 +120,10 @@ In the helper app, ask the user to:
 3. Open Admin Console or Settings.
 4. Open API tokens.
 5. Create a Client API token.
-6. Add `CHAT`, `SEARCH`, and calendar/Google Calendar scopes if available. Calendar access lets Glean check free/busy availability for scheduling replies.
+6. Add `CHAT` and `SEARCH` scopes. If your Glean admin exposes calendar action or Google Calendar access for Client API tokens, include it.
 7. Copy the token and paste it into Gmail Glean Helper.
 
-If the user does not see API tokens or calendar scopes, they likely need a Glean admin or developer to create the token or enable the Google Calendar action.
+If the user does not see API tokens or calendar access, they likely need a Glean admin or developer to create the token or enable a calendar/free-busy action for Chat. This app does not connect to Google Calendar directly.
 
 ## Reply Settings
 
@@ -137,7 +137,7 @@ The helper app includes recommended defaults for drafting behavior:
 - Timeout: 15, 30, 45, or 90 seconds.
 - Writing preferences: saved locally and added to every draft prompt.
 
-For the Glean Chat API, Fast maps to `agentConfig.mode = QUICK`; Thinking maps to `agentConfig.mode = DEFAULT`. If a Glean instance rejects that mode field, the backend retries without it. Scheduling-related requests are forced to Thinking mode and instruct Glean to use its Google Calendar Find free slots action when available.
+For the Glean Chat API, Fast maps to `agentConfig.mode = QUICK`; Thinking maps to `agentConfig.mode = DEFAULT`. If a Glean instance rejects that mode field, the backend retries without it. Scheduling-related requests are forced to Thinking mode and instruct Glean to use any available calendar/free-busy action when available.
 
 ## Current MVP Behavior
 

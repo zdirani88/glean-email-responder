@@ -64,10 +64,10 @@ function formatSchedulingInstructions(payload: ValidDraftRequest) {
 
   return [
     "Scheduling support:",
-    "- Scheduling intent detected. Use Glean's Google Calendar Find free slots action, if available, to check the user's real availability.",
+    "- Scheduling intent detected. Use any available Glean calendar, free/busy, or connected Google Calendar action to check the user's real availability.",
     '- Use calendar identifier "primary" unless the email explicitly names another calendar or attendee calendar.',
     `- Interpret dates and times in timezone ${timezone}.`,
-    "- If Glean cannot access calendar availability or the action is unavailable, state that availability still needs to be confirmed instead of pretending a slot is available.",
+    "- If Glean cannot access calendar availability or no calendar action is available, state that availability still needs to be confirmed instead of pretending a slot is available.",
     "- Do not create or modify calendar events. Only draft the email reply.",
   ].join("\n");
 }
@@ -191,10 +191,10 @@ function formatNewEmailSchedulingInstructions(payload: ValidNewEmailRequest) {
 
   return [
     "Scheduling support:",
-    "- Scheduling intent detected. Use Glean's Google Calendar Find free slots action, if available, to check the user's real availability.",
+    "- Scheduling intent detected. Use any available Glean calendar, free/busy, or connected Google Calendar action to check the user's real availability.",
     '- Use calendar identifier "primary" unless the email explicitly names another calendar or attendee calendar.',
     `- Interpret dates and times in timezone ${timezone}.`,
-    "- If Glean cannot access calendar availability or the action is unavailable, state that availability still needs to be confirmed instead of pretending a slot is available.",
+    "- If Glean cannot access calendar availability or no calendar action is available, state that availability still needs to be confirmed instead of pretending a slot is available.",
     "- Do not create or modify calendar events. Only draft the email.",
   ].join("\n");
 }
@@ -283,10 +283,10 @@ function formatSlackSchedulingInstructions(payload: ValidSlackDraftRequest) {
 
   return [
     "Scheduling support:",
-    "- Scheduling intent detected. Use Glean's Google Calendar Find free slots action, if available, to check the user's real availability.",
+    "- Scheduling intent detected. Use any available Glean calendar, free/busy, or connected Google Calendar action to check the user's real availability.",
     '- Use calendar identifier "primary" unless the Slack context explicitly names another calendar or attendee calendar.',
     `- Interpret dates and times in timezone ${timezone}.`,
-    "- If Glean cannot access calendar availability or the action is unavailable, say the time still needs to be confirmed instead of pretending a slot is available.",
+    "- If Glean cannot access calendar availability or no calendar action is available, say the time still needs to be confirmed instead of pretending a slot is available.",
     "- Do not create or modify calendar events. Only draft the Slack response.",
   ].join("\n");
 }
