@@ -122,7 +122,7 @@ quickRestartButton?.addEventListener("click", () => {
 });
 
 quickRefreshExtensionButton?.addEventListener("click", () => {
-  openExtensionFolderButton?.click();
+  void installExtension();
 });
 
 quickPairButton?.addEventListener("click", () => {
@@ -168,21 +168,18 @@ openExtensionsButton?.addEventListener("click", async () => {
   });
 });
 
-openExtensionFolderButton?.addEventListener("click", async () => {
-  await runAction(undefined, async () => {
-    const result = await window.gmailGleanHelper.openExtensionFolder();
-    renderStatus(await window.gmailGleanHelper.getStatus());
-    setMessage(formatExtensionCopySuccess(result), result.warnings.length ? "neutral" : "success");
-  });
+openExtensionFolderButton?.addEventListener("click", () => {
+  void installExtension();
 });
 
 pairExtensionButton?.addEventListener("click", async () => {
   await runAction(undefined, async () => {
+    const before = await window.gmailGleanHelper.getStatus();
     const result = await window.gmailGleanHelper.pairExtension();
-    const status = await waitForPairingConfirmation();
+    const status = await waitForPairingConfirmation(result.extensionVersion, before.extensionPairedAt);
     renderStatus(status);
-    if (status.extensionPairedAt) {
-      setMessage("Extension pairing confirmed. Reload Gmail before drafting.", "success");
+    if (status.extensionPairedVersion === result.extensionVersion && status.extensionPairedAt !== before.extensionPairedAt) {
+      setMessage(`Extension version ${result.extensionVersion} confirmed by Chrome. Reload Gmail before drafting.`, "success");
       return;
     }
 
@@ -214,9 +211,21 @@ openShortcutsButton?.addEventListener("click", async () => {
   });
 });
 
-async function waitForPairingConfirmation() {
+async function installExtension() {
+  await runAction(undefined, async () => {
+    const result = await window.gmailGleanHelper.openExtensionFolder();
+    renderStatus(await window.gmailGleanHelper.getStatus());
+    setMessage(formatExtensionCopySuccess(result), result.warnings.length ? "neutral" : "success");
+  });
+}
+
+async function waitForPairingConfirmation(extensionVersion: string, previousPairedAt?: string) {
   let latest = await window.gmailGleanHelper.getStatus();
-  for (let index = 0; index < 20 && !latest.extensionPairedAt; index += 1) {
+  for (
+    let index = 0;
+    index < 20 && (latest.extensionPairedVersion !== extensionVersion || latest.extensionPairedAt === previousPairedAt);
+    index += 1
+  ) {
     await sleep(500);
     latest = await window.gmailGleanHelper.getStatus();
   }
@@ -254,7 +263,7 @@ function renderStatus(status: HelperStatus) {
         : "Stopped";
   }
   if (tokenState) tokenState.textContent = status.hasToken ? "Token saved securely" : "Token not set";
-  if (extensionPath) extensionPath.textContent = status.extensionPath;
+  if (extensionPath) extensionPath.textContent = status.extensionPath || "Not installed yet";
   if (extensionId) extensionId.textContent = status.extensionId;
   if (extensionVersion) extensionVersion.textContent = status.extensionManifestVersion || "Not copied yet";
   if (bundledExtensionVersion) bundledExtensionVersion.textContent = status.bundledExtensionManifestVersion || "Unavailable";

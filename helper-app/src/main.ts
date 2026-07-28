@@ -1,7 +1,7 @@
 import { app, BrowserWindow, clipboard, ipcMain, safeStorage, shell } from "electron";
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { chmod, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -298,7 +298,7 @@ function getPublicStatus(): PublicStatus {
     hasToken: Boolean(currentConfig.encryptedToken),
     hasLocalSecret: Boolean(currentConfig.encryptedLocalSecret),
     launchAtLogin: currentConfig.launchAtLogin,
-    extensionPath: installableExtensionPath,
+    extensionPath: installableExtension.ready ? installableExtensionPath : "",
     extensionId: EXTENSION_ID,
     extensionFolderReady: installableExtension.ready,
     bundledExtensionReady: bundledExtension.ready,
@@ -315,7 +315,7 @@ function getPublicStatus(): PublicStatus {
 }
 
 function getBundledExtensionPath() {
-  const fallbackPath = app.isPackaged ? join(process.resourcesPath, "extension") : resolve(app.getAppPath(), "..", "extension", "dist");
+  const fallbackPath = app.isPackaged ? join(process.resourcesPath, "extension") : resolve(app.getAppPath(), "..", "..", "extension", "dist");
   const candidates: string[] = app.isPackaged
     ? [
         fallbackPath,
@@ -388,15 +388,24 @@ async function captureWarning(warnings: string[], message: string, action: () =>
 }
 
 async function copyExtensionFolder(source: string, destination: string) {
+  const stagingPath = `${destination}.staging-${process.pid}`;
   await mkdir(dirname(destination), { recursive: true });
-  await rm(destination, { recursive: true, force: true });
-  await cp(source, destination, { recursive: true, force: true });
-  const copiedStatus = getExtensionFolderStatus(destination);
-  if (!copiedStatus.ready) {
-    throw new Error(copiedStatus.detail);
-  }
-  if (copiedStatus.manifestVersion !== readExtensionManifestVersion(source)) {
-    throw new Error("The copied extension version does not match the bundled extension.");
+  await rm(stagingPath, { recursive: true, force: true });
+
+  try {
+    await cp(source, stagingPath, { recursive: true, force: true });
+    const copiedStatus = getExtensionFolderStatus(stagingPath);
+    if (!copiedStatus.ready) {
+      throw new Error(copiedStatus.detail);
+    }
+    if (copiedStatus.manifestVersion !== readExtensionManifestVersion(source)) {
+      throw new Error("The copied extension version does not match the bundled extension.");
+    }
+
+    await rm(destination, { recursive: true, force: true });
+    await rename(stagingPath, destination);
+  } finally {
+    await rm(stagingPath, { recursive: true, force: true });
   }
 }
 
