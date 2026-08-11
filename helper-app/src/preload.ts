@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("gmailGleanHelper", {
   openExtensionFolder: () => ipcRenderer.invoke("helper:open-extension-folder"),
   pairExtension: () => ipcRenderer.invoke("helper:pair-extension"),
   copyPairingLink: () => ipcRenderer.invoke("helper:copy-pairing-link"),
+  copyManualInstallCommand: () => ipcRenderer.invoke("helper:copy-manual-install-command"),
+  copyManualPairingSettings: () => ipcRenderer.invoke("helper:copy-manual-pairing-settings"),
   clearGleanToken: () => ipcRenderer.invoke("helper:clear-glean-token"),
   rotateLocalSecret: () => ipcRenderer.invoke("helper:rotate-local-secret"),
 });

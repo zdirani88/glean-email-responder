@@ -22,6 +22,7 @@ const appPayloadDir = join(resourcesDir, "app");
 const plistBuddy = "/usr/libexec/PlistBuddy";
 const plistPath = join(appBundle, "Contents", "Info.plist");
 const dmgPath = join(helperDir, "dist", `${appName}-mac.dmg`);
+const zipPath = join(helperDir, "dist", `${appName}-mac.zip`);
 
 if (!existsSync(electronApp) && existsSync(electronInstaller)) {
   console.log("Electron.app was not found. Downloading the Electron runtime...");
@@ -40,6 +41,7 @@ if (!existsSync(join(rootDir, "extension", "dist", "manifest.json"))) {
 
 await rm(releaseDir, { recursive: true, force: true });
 await rm(dmgPath, { force: true });
+await rm(zipPath, { force: true });
 await mkdir(releaseDir, { recursive: true });
 
 await execFileAsync("ditto", [electronApp, appBundle]);
@@ -80,19 +82,26 @@ await updatePlist(plistPath, [
 ]);
 await deletePlistKey(plistPath, ":ElectronAsarIntegrity");
 await execFileAsync("codesign", ["--force", "--deep", "--sign", "-", appBundle]);
-await execFileAsync("hdiutil", [
-  "create",
-  "-volname",
-  appName,
-  "-srcfolder",
-  releaseDir,
-  "-ov",
-  "-format",
-  "UDZO",
-  dmgPath,
-]);
+await execFileAsync("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", appBundle, zipPath]);
+console.log(`Created ${zipPath}`);
 
-console.log(`Created ${dmgPath}`);
+try {
+  await execFileAsync("hdiutil", [
+    "create",
+    "-volname",
+    appName,
+    "-srcfolder",
+    releaseDir,
+    "-ov",
+    "-format",
+    "UDZO",
+    dmgPath,
+  ]);
+  console.log(`Created ${dmgPath}`);
+} catch (error) {
+  const detail = error instanceof Error && error.message ? error.message.split("\n")[0] : String(error);
+  console.warn(`DMG creation was unavailable. The signed app zip is ready at ${zipPath}. ${detail}`);
+}
 
 async function updatePlist(path, entries) {
   for (const [command, key, value] of entries) {

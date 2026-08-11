@@ -505,7 +505,7 @@ function renderUi(composer: ComposerTarget | undefined) {
         .ggd-inline-ui .debug-stats {
           display: grid;
           gap: 8px;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
+          grid-template-columns: repeat(4, minmax(0, 1fr));
         }
         .ggd-inline-ui .debug-stat {
           background: #ffffff;
@@ -664,6 +664,7 @@ function renderUi(composer: ComposerTarget | undefined) {
           <div class="debug-stat"><span class="debug-label">AI mode</span><strong class="debug-value debug-mode">Not available</strong></div>
           <div class="debug-stat"><span class="debug-label">Model</span><strong class="debug-value debug-model">Not available</strong></div>
           <div class="debug-stat"><span class="debug-label">Token usage</span><strong class="debug-value debug-tokens">Not available</strong></div>
+          <div class="debug-stat"><span class="debug-label">Estimated cost</span><strong class="debug-value debug-cost">Not available</strong></div>
         </div>
         <div class="debug-error"></div>
       </div>
@@ -701,6 +702,7 @@ function renderUi(composer: ComposerTarget | undefined) {
   const debugMode = el.querySelector<HTMLElement>(".debug-mode");
   const debugModel = el.querySelector<HTMLElement>(".debug-model");
   const debugTokens = el.querySelector<HTMLElement>(".debug-tokens");
+  const debugCost = el.querySelector<HTMLElement>(".debug-cost");
   const debugError = el.querySelector<HTMLElement>(".debug-error");
   const sourcesList = el.querySelector<HTMLElement>(".sources-list");
   const uiState = el.__ggdVariantState ??= { variants: [], selectedVariantIndex: 0, originalComposerText: "", overwriteBehavior: "replace", surface: "gmail" };
@@ -716,11 +718,11 @@ function renderUi(composer: ComposerTarget | undefined) {
     if (!selectedVariant) return;
     insertDraftForSurface(uiState.variantComposer, getVariantDraftForInsert(uiState, selectedVariant), selectedVariant.subject, "replace", uiState.surface);
     if (variantCount) variantCount.textContent = `${selectedVariant.label} of ${uiState.variants.length}`;
-    renderDebugState(debugMode, debugModel, debugTokens, debugError, lastDebugState);
+    renderDebugState(debugMode, debugModel, debugTokens, debugCost, debugError, lastDebugState);
   };
   if (previousVariant) previousVariant.onclick = () => applyVariant(uiState.selectedVariantIndex - 1);
   if (nextVariant) nextVariant.onclick = () => applyVariant(uiState.selectedVariantIndex + 1);
-  renderDebugState(debugMode, debugModel, debugTokens, debugError, lastDebugState);
+  renderDebugState(debugMode, debugModel, debugTokens, debugCost, debugError, lastDebugState);
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
   return {
     focusInstruction() {
@@ -764,7 +766,7 @@ function renderUi(composer: ComposerTarget | undefined) {
       if (message) message.textContent = text;
     },
     setDebugState(state: DebugState | undefined) {
-      renderDebugState(debugMode, debugModel, debugTokens, debugError, state);
+      renderDebugState(debugMode, debugModel, debugTokens, debugCost, debugError, state);
     },
     setGroundingState(response: DraftResponsePayload) {
       renderGroundingState(sourcesList, response);
@@ -790,22 +792,35 @@ function renderUi(composer: ComposerTarget | undefined) {
       if (variantCount) {
         variantCount.textContent = hasMultipleVariants ? `${uiState.variants[uiState.selectedVariantIndex]?.label ?? "Draft 1"} of ${uiState.variants.length}` : "1 draft returned";
       }
-      renderDebugState(debugMode, debugModel, debugTokens, debugError, lastDebugState);
+      renderDebugState(debugMode, debugModel, debugTokens, debugCost, debugError, lastDebugState);
     },
   };
 }
 
 function renderGroundingState(element: HTMLElement | null, response: DraftResponsePayload) {
   if (!element) return;
-  const sourceItems = response.groundingSources.length
-    ? response.groundingSources.map((source) => `<span class="source-item"><strong>${escapeHtml(source.label)}:</strong> ${escapeHtml(source.detail)}</span>`)
+  const sourceItems = response.groundingSources
+    .filter((source) => !isCalendarDebugItem(source.label, source.detail))
+    .filter((source) => source.label !== "Glean mode")
+    .map((source) => `<span class="source-item"><strong>${escapeHtml(source.label)}:</strong> ${escapeHtml(source.detail)}</span>`);
+  const contextItems = sourceItems.length
+    ? sourceItems
     : ['<span class="source-item">No source details returned.</span>'];
-  const calendar = response.calendarStatus
-    ? `<span class="source-item"><strong>Calendar:</strong> ${escapeHtml(response.calendarStatus.detail)}</span>`
-    : "";
-  const tokenUsage = response.tokenUsage ? `<span class="source-item"><strong>Tokens:</strong> ${escapeHtml(formatTokenUsage(response.tokenUsage))}</span>` : "";
-  const warnings = response.warnings.map((warning) => `<span class="source-warning">${escapeHtml(warning)}</span>`);
-  element.innerHTML = [...sourceItems, calendar, tokenUsage, ...warnings].filter(Boolean).join("");
+  const usage = response.tokenUsage;
+  const metadataItems = [
+    `<span class="source-item"><strong>AI mode:</strong> ${escapeHtml(formatGleanMode(response.effectiveGleanMode))}</span>`,
+    `<span class="source-item"><strong>Model:</strong> ${escapeHtml(formatModelName(usage))}</span>`,
+    usage ? `<span class="source-item"><strong>Token usage:</strong> ${escapeHtml(formatTokenUsage(usage))}</span>` : `<span class="source-item"><strong>Token usage:</strong> Not available</span>`,
+    `<span class="source-item"><strong>Estimated cost:</strong> ${escapeHtml(formatEstimatedCost(usage))}</span>`,
+  ];
+  const warnings = response.warnings
+    .filter((warning) => !/\bcalendar\b/i.test(warning))
+    .map((warning) => `<span class="source-warning">${escapeHtml(warning)}</span>`);
+  element.innerHTML = [...contextItems, ...metadataItems, ...warnings].join("");
+}
+
+function isCalendarDebugItem(label: string, detail: string) {
+  return /\bcalendar\b/i.test(`${label} ${detail}`);
 }
 
 function formatTokenUsage(usage: NonNullable<DraftResponsePayload["tokenUsage"]>) {
@@ -820,18 +835,28 @@ function formatTokenUsage(usage: NonNullable<DraftResponsePayload["tokenUsage"]>
   if (usage.cacheReadInputTokens !== undefined) {
     parts.push(`cache read ${formatTokenCount(usage.cacheReadInputTokens)}`);
   }
-  if (usage.modelName) {
-    parts.push(`model ${usage.modelName}`);
-  }
-  if (usage.provider) {
-    parts.push(`provider ${usage.provider}`);
-  }
-  if (usage.estimatedCostUsd !== null) {
-    const costSource = usage.estimatedCostSource === "vendor-list-price" ? "vendor estimate" : "cost";
-    parts.push(`${costSource} ${formatUsd(usage.estimatedCostUsd)}`);
-  }
 
-  return `${parts.join(", ")} (${usage.source}). ${usage.note}`;
+  return `${parts.join(", ")} (${usage.source === "estimated" ? "approximate" : "Glean reported"})`;
+}
+
+function formatGleanMode(mode: DraftResponsePayload["effectiveGleanMode"]) {
+  return mode === "thinking" ? "Thinking" : "Fast";
+}
+
+function formatModelName(usage: DraftResponsePayload["tokenUsage"] | undefined) {
+  if (usage?.modelName) {
+    return usage.provider && !usage.modelName.toLowerCase().includes(usage.provider.toLowerCase())
+      ? `${usage.provider} / ${usage.modelName}`
+      : usage.modelName;
+  }
+  if (usage?.isGleanHostedModel) return "Glean hosted model";
+  return "Not reported by Glean";
+}
+
+function formatEstimatedCost(usage: DraftResponsePayload["tokenUsage"] | undefined) {
+  if (!usage || usage.estimatedCostUsd === null) return "Unavailable (model not reported)";
+  const source = usage.estimatedCostSource === "vendor-list-price" ? "vendor estimate" : "Glean reported";
+  return `${formatUsd(usage.estimatedCostUsd)} (${source})`;
 }
 
 function formatTokenCount(value: number | null) {
@@ -920,20 +945,14 @@ function setupDraggablePanel(panel: HTMLElement) {
   });
 }
 
-function renderDebugState(modeElement: HTMLElement | null, modelElement: HTMLElement | null, tokensElement: HTMLElement | null, errorElement: HTMLElement | null, state: DebugState | undefined) {
+function renderDebugState(modeElement: HTMLElement | null, modelElement: HTMLElement | null, tokensElement: HTMLElement | null, costElement: HTMLElement | null, errorElement: HTMLElement | null, state: DebugState | undefined) {
   const usage = state?.response?.tokenUsage;
   const mode = state?.response?.effectiveGleanMode;
-  const model = usage?.modelName
-    ? usage.provider && !usage.modelName.toLowerCase().includes(usage.provider.toLowerCase())
-      ? `${usage.provider} / ${usage.modelName}`
-      : usage.modelName
-    : usage?.isGleanHostedModel
-      ? "Glean hosted model"
-      : "Not returned by Glean";
 
-  if (modeElement) modeElement.textContent = mode ? (mode === "thinking" ? "Thinking" : "Fast") : "Not available";
-  if (modelElement) modelElement.textContent = model;
+  if (modeElement) modeElement.textContent = mode ? formatGleanMode(mode) : "Not available";
+  if (modelElement) modelElement.textContent = formatModelName(usage);
   if (tokensElement) tokensElement.textContent = usage ? formatTokenUsageSummary(usage) : "Not available";
+  if (costElement) costElement.textContent = formatEstimatedCost(usage);
   if (errorElement) {
     errorElement.textContent = state?.error ?? "";
     errorElement.classList.toggle("visible", Boolean(state?.error));

@@ -112,6 +112,8 @@ The helper app:
 - Can start at login
 - Shows Chrome extension setup steps
 
+If macOS blocks the helper's Finder or Chrome launch, use the **Manual steps to set up** section in the helper. Its Terminal command is generated from the app's actual embedded extension path and the current user's writable folders. Run it, then open `chrome://extensions`, enable Developer mode, and load or reload the copied `Gmail Glean Reply Extension` folder. For pairing, open the extension's Options page and paste the Backend URL and Backend shared secret into the matching fields. Chrome does not allow a desktop app to silently approve Load unpacked, so that Chrome step is intentionally manual.
+
 ### Glean Token Setup For Users
 
 In the helper app, ask the user to:

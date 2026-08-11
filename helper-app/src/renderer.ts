@@ -33,12 +33,15 @@ interface HelperStatus {
   bundledExtensionManifestVersion?: string;
   extensionVersionMatches: boolean;
   extensionPairedVersion?: string;
+  manualInstallCommand: string;
+  manualPairingSettings: string;
   serverError?: string;
 }
 
 interface ExtensionActionResult {
   extensionPath: string;
   extensionVersion: string;
+  manualInstallCommand: string;
   warnings: string[];
 }
 
@@ -51,6 +54,8 @@ interface HelperApi {
   openExtensionFolder(): Promise<ExtensionActionResult>;
   pairExtension(): Promise<ExtensionActionResult>;
   copyPairingLink(): Promise<void>;
+  copyManualInstallCommand(): Promise<string>;
+  copyManualPairingSettings(): Promise<string>;
   clearGleanToken(): Promise<HelperStatus>;
   rotateLocalSecret(): Promise<HelperStatus>;
 }
@@ -97,6 +102,8 @@ const openShortcutsButton = document.querySelector<HTMLButtonElement>("#openShor
 const openExtensionFolderButton = document.querySelector<HTMLButtonElement>("#openExtensionFolder");
 const pairExtensionButton = document.querySelector<HTMLButtonElement>("#pairExtension");
 const copyPairingLinkButton = document.querySelector<HTMLButtonElement>("#copyPairingLink");
+const copyManualInstallCommandButton = document.querySelector<HTMLButtonElement>("#copyManualInstallCommand");
+const copyManualPairingSettingsButton = document.querySelector<HTMLButtonElement>("#copyManualPairingSettings");
 const clearTokenButton = document.querySelector<HTMLButtonElement>("#clearToken");
 const rotateSecretButton = document.querySelector<HTMLButtonElement>("#rotateSecret");
 const extensionPath = document.querySelector<HTMLElement>("#extensionPath");
@@ -174,15 +181,8 @@ openExtensionFolderButton?.addEventListener("click", () => {
 
 pairExtensionButton?.addEventListener("click", async () => {
   await runAction(undefined, async () => {
-    const before = await window.gmailGleanHelper.getStatus();
     const result = await window.gmailGleanHelper.pairExtension();
-    const status = await waitForPairingConfirmation(result.extensionVersion, before.extensionPairedAt);
-    renderStatus(status);
-    if (status.extensionPairedVersion === result.extensionVersion && status.extensionPairedAt !== before.extensionPairedAt) {
-      setMessage(`Extension version ${result.extensionVersion} confirmed by Chrome. Reload Gmail before drafting.`, "success");
-      return;
-    }
-
+    renderStatus(await window.gmailGleanHelper.getStatus());
     setMessage(formatPairingSuccess(result), "neutral");
   });
 });
@@ -190,6 +190,18 @@ pairExtensionButton?.addEventListener("click", async () => {
 copyPairingLinkButton?.addEventListener("click", async () => {
   await runAction("Pairing link copied.", async () => {
     await window.gmailGleanHelper.copyPairingLink();
+  });
+});
+
+copyManualInstallCommandButton?.addEventListener("click", async () => {
+  await runAction("Manual install command copied. Paste it into Terminal.", async () => {
+    await window.gmailGleanHelper.copyManualInstallCommand();
+  });
+});
+
+copyManualPairingSettingsButton?.addEventListener("click", async () => {
+  await runAction("Manual pairing values copied. Paste them into the extension options page.", async () => {
+    await window.gmailGleanHelper.copyManualPairingSettings();
   });
 });
 
@@ -217,23 +229,6 @@ async function installExtension() {
     renderStatus(await window.gmailGleanHelper.getStatus());
     setMessage(formatExtensionCopySuccess(result), result.warnings.length ? "neutral" : "success");
   });
-}
-
-async function waitForPairingConfirmation(extensionVersion: string, previousPairedAt?: string) {
-  let latest = await window.gmailGleanHelper.getStatus();
-  for (
-    let index = 0;
-    index < 20 && (latest.extensionPairedVersion !== extensionVersion || latest.extensionPairedAt === previousPairedAt);
-    index += 1
-  ) {
-    await sleep(500);
-    latest = await window.gmailGleanHelper.getStatus();
-  }
-  return latest;
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 async function refreshStatus() {
@@ -268,6 +263,10 @@ function renderStatus(status: HelperStatus) {
   if (extensionVersion) extensionVersion.textContent = status.extensionManifestVersion || "Not copied yet";
   if (bundledExtensionVersion) bundledExtensionVersion.textContent = status.bundledExtensionManifestVersion || "Unavailable";
   if (pairedExtensionVersion) pairedExtensionVersion.textContent = status.extensionPairedVersion || "Not verified yet";
+  const manualInstallCommand = document.querySelector<HTMLElement>("#manualInstallCommand");
+  if (manualInstallCommand) manualInstallCommand.textContent = status.manualInstallCommand;
+  const manualPairingSettings = document.querySelector<HTMLElement>("#manualPairingSettings");
+  if (manualPairingSettings) manualPairingSettings.textContent = status.manualPairingSettings;
   renderSetup(status);
 }
 
@@ -371,12 +370,12 @@ function formatScopeHint(scopeHint: { hasChat: boolean; hasSearch: boolean; hasC
 }
 
 function formatExtensionCopySuccess(result: ExtensionActionResult) {
-  const base = `Extension version ${result.extensionVersion} was copied and verified at ${result.extensionPath}. In Chrome, click Load unpacked for the first install or click Reload for an existing install.`;
+  const base = `Extension version ${result.extensionVersion} was copied and verified at ${result.extensionPath}. In Chrome, click Load unpacked for the first install or click Reload for an existing install. A manual Terminal command is available below if needed.`;
   return appendWarnings(base, result.warnings);
 }
 
 function formatPairingSuccess(result: ExtensionActionResult) {
-  const base = `Pairing link copied for extension version ${result.extensionVersion}. Open it after reloading that version in Chrome.`;
+  const base = `Pairing values copied for extension version ${result.extensionVersion}. Chrome's extension details page is open. Click Extension options, paste the two copied lines into Backend base URL and Backend shared secret, then click Save.`;
   return appendWarnings(base, result.warnings);
 }
 
@@ -426,6 +425,8 @@ function setBusy(busy: boolean) {
     openExtensionFolderButton,
     pairExtensionButton,
     copyPairingLinkButton,
+    copyManualInstallCommandButton,
+    copyManualPairingSettingsButton,
     clearTokenButton,
     rotateSecretButton,
     refreshStatusButton,

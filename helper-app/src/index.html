@@ -258,6 +258,17 @@
         background: #fce8e6;
         color: #b3261e;
       }
+      .manual-command {
+        background: #f6f8fb;
+        border: 1px solid #dfe3ea;
+        border-radius: 6px;
+        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        margin: 10px 0;
+        overflow-x: auto;
+        padding: 10px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
       .split {
         display: grid;
         gap: 18px;
@@ -435,13 +446,13 @@
 
         <section>
           <h2>Chrome extension</h2>
-          <p class="message neutral" style="margin-bottom: 12px">Install or refresh the extension after every helper app update. The helper copies the current extension, verifies its version, opens Finder and Chrome extensions, and puts the folder path on your clipboard. After Chrome reloads that version, click <strong>Pair extension</strong> to verify the extension that is actually running.</p>
+          <p class="message neutral" style="margin-bottom: 12px">Copy or refresh the extension after every helper app update. The helper verifies the files, opens the copied folder and Chrome's extension page, and puts the folder path on your clipboard. Chrome still requires Load unpacked or Reload. Pairing opens the extension details page and copies values for its Options page.</p>
           <ol>
             <li>Click <strong>Install / refresh extension</strong>. Confirm the helper reports the current extension version.</li>
             <li>Enable Developer Mode.</li>
             <li>Click Load unpacked.</li>
             <li>Choose the copied folder path, then select <code>Gmail Glean Reply Extension</code>. If it is already installed, click its reload icon and confirm Chrome shows the current version.</li>
-            <li>Click <strong>Pair extension</strong>. The helper records the version from Chrome’s extension page and shows it under “Chrome confirmed version.”</li>
+            <li>Click <strong>Pair extension</strong>. In Chrome, click Extension options, paste the two copied lines into the fields, and click Save. The helper then records the running extension version under “Chrome confirmed version.”</li>
             <li>Use <code>Cmd+Shift+Y</code> in a Gmail reply.</li>
           </ol>
           <p class="hint" style="margin-top: 10px">Extension install folder: <code id="extensionPath">Checking...</code></p>
@@ -455,6 +466,24 @@
             <button id="openShortcuts" type="button" class="secondary">Open shortcuts</button>
             <button id="rotateSecret" type="button" class="secondary">Rotate pairing secret</button>
           </div>
+          <details style="margin-top: 14px">
+            <summary>Manual steps to set up</summary>
+            <p class="hint">Use these steps if automatic buttons or Chrome launch are blocked. The command is generated for this app and this Mac user. It tries your Desktop first, then uses a private writable app folder if Desktop access is restricted.</p>
+            <pre id="manualInstallCommand" class="manual-command">Preparing command...</pre>
+            <div class="row">
+              <button id="copyManualInstallCommand" type="button" class="secondary">Copy Terminal command</button>
+              <button id="copyManualPairingSettings" type="button" class="secondary">Copy pairing values</button>
+            </div>
+            <ol>
+              <li>Copy the full command above, paste it into Terminal, and press Return.</li>
+              <li>Open <code>chrome://extensions</code> in Chrome and turn on <strong>Developer mode</strong>.</li>
+              <li>Choose <strong>Load unpacked</strong> for the first install, or click <strong>Reload</strong> on the existing extension.</li>
+              <li>Select the <code>Gmail Glean Reply Extension</code> folder shown by the helper after copying.</li>
+              <li>For pairing, open the extension's <strong>Options</strong> page. Paste the Backend URL into the first field and the Backend shared secret into the second field, then click <strong>Save</strong>.</li>
+            </ol>
+            <p class="hint">The pairing values below are two separate lines: Backend URL first, Backend shared secret second. If a clipboard blocker prevents copying, select each line and type it into the matching Options field.</p>
+            <pre id="manualPairingSettings" class="manual-command">Preparing pairing values...</pre>
+          </details>
         </section>
       </div>
     </main>

@@ -42,12 +42,15 @@ interface PublicStatus {
   bundledExtensionManifestVersion?: string;
   extensionVersionMatches: boolean;
   extensionPairedVersion?: string;
+  manualInstallCommand: string;
+  manualPairingSettings: string;
   serverError?: string;
 }
 
 interface ExtensionActionResult {
   extensionPath: string;
   extensionVersion: string;
+  manualInstallCommand: string;
   warnings: string[];
 }
 
@@ -136,7 +139,7 @@ ipcMain.handle("helper:restart-server", async (event) => {
 
 ipcMain.handle("helper:open-url", async (_event, url: string) => {
   assertTrustedSender(_event.senderFrame?.url);
-  if (url === "chrome://extensions" || url === "chrome://extensions/shortcuts") {
+  if (isAllowedChromeUrl(url)) {
     await openChromeUrl(url);
     return;
   }
@@ -148,26 +151,42 @@ ipcMain.handle("helper:open-extension-folder", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
   const { extensionPath, extensionVersion, warnings } = await prepareInstallableExtensionFolder();
   clipboard.writeText(extensionPath);
-  await captureWarning(warnings, "Chrome extensions page did not open automatically.", () => openChromeUrl("chrome://extensions"));
-  await captureWarning(warnings, "Finder did not open the copied extension folder automatically.", async () => {
-    const result = await shell.openPath(extensionPath);
-    if (result) throw new Error(result);
+  void openChromeUrl("chrome://extensions").catch((error) => {
+    console.warn("chrome_extensions_page_open_failed", toErrorMessage(error));
   });
-  return { extensionPath, extensionVersion, warnings } satisfies ExtensionActionResult;
+  void shell.openPath(extensionPath).then((error) => {
+    if (error) console.warn("extension_folder_open_failed", error);
+  });
+  return { extensionPath, extensionVersion, manualInstallCommand: getManualInstallCommand(), warnings } satisfies ExtensionActionResult;
 });
 
 ipcMain.handle("helper:pair-extension", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
   const { extensionPath, extensionVersion, warnings } = await prepareInstallableExtensionFolder();
-  const pairingUrl = getExtensionPairingUrl();
-  clipboard.writeText(pairingUrl);
-  await captureWarning(warnings, "Pairing page did not open automatically. The pairing link is copied to your clipboard.", () => openChromeUrl(pairingUrl));
-  return { extensionPath, extensionVersion, warnings } satisfies ExtensionActionResult;
+  clipboard.writeText(getManualPairingSettings());
+  void openChromeUrl(getChromeExtensionDetailsUrl()).catch((error) => {
+    console.warn("chrome_extensions_page_open_failed", toErrorMessage(error));
+  });
+  return { extensionPath, extensionVersion, manualInstallCommand: getManualInstallCommand(), warnings } satisfies ExtensionActionResult;
 });
 
 ipcMain.handle("helper:copy-pairing-link", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
   clipboard.writeText(getExtensionPairingUrl());
+});
+
+ipcMain.handle("helper:copy-manual-install-command", async (event) => {
+  assertTrustedSender(event.senderFrame?.url);
+  const command = getManualInstallCommand();
+  clipboard.writeText(command);
+  return command;
+});
+
+ipcMain.handle("helper:copy-manual-pairing-settings", async (event) => {
+  assertTrustedSender(event.senderFrame?.url);
+  const settings = getManualPairingSettings();
+  clipboard.writeText(settings);
+  return settings;
 });
 
 ipcMain.handle("helper:clear-glean-token", async (event) => {
@@ -305,6 +324,8 @@ function getPublicStatus(): PublicStatus {
     extensionFolderDetail,
     bundledExtensionDetail: bundledExtension.detail,
     extensionVersionMatches,
+    manualInstallCommand: getManualInstallCommand(),
+    manualPairingSettings: getManualPairingSettings(),
   };
   if (installableExtension.manifestVersion) status.extensionManifestVersion = installableExtension.manifestVersion;
   if (bundledExtension.manifestVersion) status.bundledExtensionManifestVersion = bundledExtension.manifestVersion;
@@ -321,6 +342,8 @@ function getBundledExtensionPath() {
         fallbackPath,
         resolve(app.getAppPath(), "..", "extension"),
         resolve(app.getAppPath(), "..", "..", "extension"),
+        // Support helper bundles created before the extension moved under Resources.
+        resolve(app.getAppPath(), "..", "..", "extension", "dist"),
       ]
     : [fallbackPath];
 
@@ -334,7 +357,12 @@ function getBundledExtensionPath() {
 }
 
 function getInstallableExtensionPath() {
-  return currentConfig.extensionInstallPath || getDesktopExtensionPath();
+  const candidates = uniquePaths([currentConfig.extensionInstallPath, getDesktopExtensionPath(), getFallbackExtensionPath()]);
+  return candidates.find((path) => getExtensionFolderStatus(path).ready) || currentConfig.extensionInstallPath || getDesktopExtensionPath();
+}
+
+function isAllowedChromeUrl(url: string) {
+  return url === "chrome://extensions" || url === "chrome://extensions/shortcuts" || url === getChromeExtensionDetailsUrl();
 }
 
 async function prepareInstallableExtensionFolder() {
@@ -376,15 +404,6 @@ async function openChromeUrl(url: string) {
   }
 
   await shell.openExternal(url);
-}
-
-async function captureWarning(warnings: string[], message: string, action: () => Promise<void>) {
-  try {
-    await action();
-  } catch (error) {
-    const detail = error instanceof Error && error.message ? ` ${error.message}` : "";
-    warnings.push(`${message}${detail}`);
-  }
 }
 
 async function copyExtensionFolder(source: string, destination: string) {
@@ -470,6 +489,31 @@ function getExtensionPairingUrl() {
   };
   const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   return `chrome-extension://${EXTENSION_ID}/options.html#pair=${encoded}`;
+}
+
+function getChromeExtensionDetailsUrl() {
+  return `chrome://extensions/?id=${EXTENSION_ID}`;
+}
+
+function getManualInstallCommand() {
+  const source = getBundledExtensionPath();
+  const desktopDestination = getDesktopExtensionPath();
+  const fallbackDestination = getFallbackExtensionPath();
+  return [
+    `if mkdir -p ${quoteShellArg(dirname(desktopDestination))} && ditto ${quoteShellArg(source)} ${quoteShellArg(desktopDestination)}; then`,
+    `  printf '%s\\n' ${quoteShellArg(`Extension copied to ${desktopDestination}`)};`,
+    "else",
+    `  mkdir -p ${quoteShellArg(dirname(fallbackDestination))} && ditto ${quoteShellArg(source)} ${quoteShellArg(fallbackDestination)} && printf '%s\\n' ${quoteShellArg(`Desktop was unavailable. Extension copied to ${fallbackDestination}`)};`,
+    "fi",
+  ].join("\n");
+}
+
+function getManualPairingSettings() {
+  return [`http://${BACKEND_HOST}:${currentConfig.port}`, getLocalSecret(currentConfig)].join("\n");
+}
+
+function quoteShellArg(value: string) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 async function getConfigPath() {

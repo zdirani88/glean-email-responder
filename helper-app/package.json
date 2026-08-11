@@ -1,6 +1,6 @@
 {
   "name": "@gmail-glean-reply-drafter/helper-app",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "private": true,
   "description": "Desktop helper app that runs the local Glean Email Responder backend.",
   "type": "module",
