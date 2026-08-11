@@ -50,6 +50,14 @@ const EDITOR_SELECTORS = [
   "[role='textbox'][contenteditable='true']",
 ];
 
+const PRESERVED_COMPOSER_CONTENT_SELECTOR = [
+  ".gmail_quote",
+  ".gmail_extra",
+  ".gmail_signature",
+  "[data-smartmail='gmail_signature']",
+  "blockquote[type='cite']",
+].join(", ");
+
 export function extractVisibleThreadForActiveComposer(options: ExtractionOptions = {}): ExtractionResult | ExtractionFailure {
   const composer = findActiveComposer();
   if (!composer) {
@@ -133,15 +141,43 @@ export function insertDraft(composer: ComposerTarget, draft: string, mode: "repl
     fragment.append(document.createTextNode(paragraph));
   });
 
-  if (mode === "append" && getComposerText(composer.editor).trim()) {
-    composer.editor.append(document.createElement("br"));
-    composer.editor.append(document.createElement("br"));
-    composer.editor.append(fragment);
+  const preservedContent = getPreservedComposerContent(composer.editor);
+  const insertionBoundary = preservedContent[0] ?? null;
+
+  if (mode === "append" && getEditableDraftText(composer.editor).trim()) {
+    insertBeforeBoundary(composer.editor, document.createElement("br"), insertionBoundary);
+    insertBeforeBoundary(composer.editor, document.createElement("br"), insertionBoundary);
+    insertBeforeBoundary(composer.editor, fragment, insertionBoundary);
   } else {
-    composer.editor.replaceChildren(fragment);
+    for (const child of Array.from(composer.editor.childNodes)) {
+      if (!preservedContent.includes(child)) child.remove();
+    }
+    composer.editor.insertBefore(fragment, insertionBoundary);
   }
   composer.editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: draft }));
   composer.editor.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function getPreservedComposerContent(editor: HTMLElement) {
+  const preserved = new Set<Node>();
+  for (const element of Array.from(editor.querySelectorAll<HTMLElement>(PRESERVED_COMPOSER_CONTENT_SELECTOR))) {
+    let directChild: Node = element;
+    while (directChild.parentNode && directChild.parentNode !== editor) {
+      directChild = directChild.parentNode;
+    }
+    if (directChild.parentNode === editor) preserved.add(directChild);
+  }
+  return Array.from(editor.childNodes).filter((child) => preserved.has(child));
+}
+
+function getEditableDraftText(editor: HTMLElement) {
+  const copy = editor.cloneNode(true) as HTMLElement;
+  copy.querySelectorAll(PRESERVED_COMPOSER_CONTENT_SELECTOR).forEach((element) => element.remove());
+  return getComposerText(copy);
+}
+
+function insertBeforeBoundary(editor: HTMLElement, content: Node, boundary: Node | null) {
+  editor.insertBefore(content, boundary);
 }
 
 export function findActiveComposer(): ComposerTarget | undefined {
