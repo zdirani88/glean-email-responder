@@ -167,3 +167,13 @@ npm run package:helper:mac
 npm run release:helper:mac
 npm run clean
 ```
+
+## Required Test Package
+
+After every helper-app or extension change, completion includes running:
+
+```bash
+npm run release:helper:mac
+```
+
+Verify the DMG, helper version, and bundled extension version before handoff. The current installable test package must be available at `outputs/releases/Gmail Glean Helper-mac.dmg`; a source-only build is not sufficient for testing.
