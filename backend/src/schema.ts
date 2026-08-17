@@ -78,6 +78,21 @@ export const slackDraftRequestSchema = z.object({
   clientRequestId: z.string().min(1),
 });
 
+export const webDraftRequestSchema = z.object({
+  pageTitle: z.string().max(500),
+  pageUrl: z.string().url().max(4000),
+  selectedText: z.string().max(8000),
+  nearbyText: z.string().max(16000),
+  pageText: z.string().max(20000),
+  activeFieldText: z.string().max(10000),
+  userInstruction: z.string().trim().min(1).max(3000),
+  clientTimezone: z.string().max(100).optional(),
+  activeComposerDetected: z.boolean(),
+  timestamp: z.string(),
+  clientRequestId: z.string().min(1),
+});
+
 export type ValidDraftRequest = z.infer<typeof draftRequestSchema>;
 export type ValidNewEmailRequest = z.infer<typeof newEmailRequestSchema>;
 export type ValidSlackDraftRequest = z.infer<typeof slackDraftRequestSchema>;
+export type ValidWebDraftRequest = z.infer<typeof webDraftRequestSchema>;

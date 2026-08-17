@@ -170,11 +170,6 @@ ipcMain.handle("helper:pair-extension", async (event) => {
   return { extensionPath, extensionVersion, manualInstallCommand: getManualInstallCommand(), warnings } satisfies ExtensionActionResult;
 });
 
-ipcMain.handle("helper:copy-pairing-link", async (event) => {
-  assertTrustedSender(event.senderFrame?.url);
-  clipboard.writeText(getExtensionPairingUrl());
-});
-
 ipcMain.handle("helper:copy-manual-install-command", async (event) => {
   assertTrustedSender(event.senderFrame?.url);
   const command = getManualInstallCommand();
@@ -213,7 +208,7 @@ function createWindow() {
     height: 720,
     minWidth: 760,
     minHeight: 620,
-    title: "Gmail Glean Helper",
+    title: "Glean Response Helper",
     webPreferences: {
       preload: join(app.getAppPath(), "dist", "preload.cjs"),
       contextIsolation: true,
@@ -480,15 +475,6 @@ function uniquePaths(paths: Array<string | undefined>) {
 
 function toErrorMessage(error: unknown) {
   return error instanceof Error && error.message ? error.message : String(error || "Unknown error.");
-}
-
-function getExtensionPairingUrl() {
-  const payload = {
-    backendBaseUrl: `http://${BACKEND_HOST}:${currentConfig.port}`,
-    backendSecret: getLocalSecret(currentConfig),
-  };
-  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
-  return `chrome-extension://${EXTENSION_ID}/options.html#pair=${encoded}`;
 }
 
 function getChromeExtensionDetailsUrl() {

@@ -1,5 +1,5 @@
 import type { ReplySettings } from "@gmail-glean-reply-drafter/shared";
-import type { ValidDraftRequest, ValidNewEmailRequest, ValidSlackDraftRequest } from "./schema.js";
+import type { ValidDraftRequest, ValidNewEmailRequest, ValidSlackDraftRequest, ValidWebDraftRequest } from "./schema.js";
 
 export function buildReplyPrompt(payload: ValidDraftRequest, settings: ReplySettings) {
   const selectedMessages = selectMessages(payload, settings);
@@ -338,4 +338,52 @@ function formatSlackLength(settings: ReplySettings) {
   if (settings.defaultLength === "short") return "Keep it short: usually 1-4 Slack-sized sentences unless the context clearly requires more.";
   if (settings.defaultLength === "detailed") return "Use enough detail to fully answer the ask while still sounding natural in Slack.";
   return "Use a medium Slack length: complete, but compact.";
+}
+
+export function buildWebResponsePrompt(payload: ValidWebDraftRequest, settings: ReplySettings) {
+  return `You are drafting a response for the user on a web page.
+
+Use the user's instruction as the primary goal. Use selected text and nearby conversation context before broader page text. The page may contain navigation, buttons, recommendations, or unrelated text, so ignore interface chrome and unrelated content.
+
+Voice:
+${formatVoice(settings)}
+
+Length:
+${formatSlackLength(settings)}
+
+Personal writing preferences:
+${formatWritingPreferences(settings)}
+
+Rules:
+- Return only the response text as plain text.
+- Do not include analysis, notes, labels, alternatives, or markdown fences.
+- Match the communication surface implied by the page. For LinkedIn or chat, sound concise and conversational. For a form or longer message, use an appropriately polished response.
+- Treat the user instruction as private guidance. Do not quote it unless it is clearly intended as response text.
+- Preserve names, roles, organizations, dates, links, and relationships from the visible context.
+- Do not invent facts, commitments, mutual connections, experience, pricing, availability, or approvals.
+- If context is incomplete, draft a useful response that acknowledges the message and proposes a safe next step.
+- Never use em dashes. Replace them with commas, periods, colons, semicolons, or parentheses.
+- If an existing field draft is provided, revise it according to the user instruction.
+
+User instruction:
+${payload.userInstruction}
+
+Current text in the active field:
+${payload.activeFieldText || "(empty or no active field)"}
+
+Page title:
+${payload.pageTitle || "(not available)"}
+
+Page URL:
+${payload.pageUrl}
+
+Selected text (highest-priority page context):
+${payload.selectedText || "(none)"}
+
+Nearby conversation or editor context:
+${payload.nearbyText || "(none)"}
+
+Broader visible page text:
+${payload.pageText || "(none)"}
+`;
 }

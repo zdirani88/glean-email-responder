@@ -1,20 +1,21 @@
-# Glean Email Responder
+# Glean Response Assistant
 
-DOM-first Chrome extension and backend for drafting Gmail replies with Glean.
+DOM-first Chrome extension and local backend for drafting responses with Glean in Gmail, Slack, LinkedIn, and other web pages.
 
 The MVP proves this loop:
 
-1. Open a Gmail thread and click Reply, or select a message in the Gmail inbox.
+1. Focus a reply field in Gmail, Slack, LinkedIn, or another regular web page.
 2. Press `Cmd+Shift+Y` on macOS or `Ctrl+Shift+Y` on Windows.
-3. If needed, the extension opens the selected email, starts a reply, and extracts visible Gmail thread context from the DOM.
-4. The extension sends structured context to the local backend.
-5. The backend calls Glean Client API chat.
-6. The returned plain-text draft is inserted into the active Gmail composer.
+3. Add private drafting guidance in the Glean panel.
+4. The extension prioritizes selected text and nearby conversation text, then falls back to broader visible page text.
+5. The extension sends structured text context to the local backend, without taking a screenshot.
+6. The backend calls Glean Client API chat.
+7. The returned plain-text response is inserted into the active field, or shown in the panel for copying when no editable field was focused.
 
 ## Project Structure
 
 - `extension/` - Chrome Manifest V3 extension, content script, background service worker, options page.
-- `backend/` - Express TypeScript backend with `POST /draft-email-reply`.
+- `backend/` - Express TypeScript backend with Gmail, Slack, new-email, and generic web drafting endpoints.
 - `helper-app/` - Electron desktop helper that runs the backend locally and stores the Glean token securely.
 - `shared/` - Shared request and response TypeScript types.
 
@@ -124,7 +125,7 @@ In the helper app, ask the user to:
 4. Open API tokens.
 5. Create a Client API token.
 6. Add `CHAT` and `SEARCH` scopes. If your Glean admin exposes calendar action or Google Calendar access for Client API tokens, include it.
-7. Copy the token and paste it into Gmail Glean Helper.
+7. Copy the token and paste it into Glean Response Helper.
 
 If the user does not see API tokens or calendar access, they likely need a Glean admin or developer to create the token or enable a calendar/free-busy action for Chat. This app does not connect to Google Calendar directly.
 
@@ -142,17 +143,17 @@ The helper app includes recommended defaults for drafting behavior:
 
 For the Glean Chat API, Fast maps to `agentConfig.mode = QUICK`; Thinking maps to `agentConfig.mode = DEFAULT`. If a Glean instance rejects that mode field, the backend retries without it. Scheduling-related requests are forced to Thinking mode and instruct Glean to use any available calendar/free-busy action when available.
 
-## Current MVP Behavior
+## Current Behavior
 
-- Works only on `mail.google.com`.
-- Extracts visible DOM content only.
+- Works on regular `http` and `https` pages. Chrome internal pages and the Chrome Web Store do not allow content scripts.
+- Extracts visible DOM text only; it does not capture or upload screenshots.
+- On generic pages, selected text and context near the focused editor are prioritized over broad page text.
 - On the inbox, the shortcut attempts to open the selected or first visible email, click Reply, and draft automatically.
 - Replaces existing composer text when drafting or revising.
 - Returns inline errors without clearing composer content.
-- Inserts plain text into the focused Gmail editor.
+- Inserts plain text into focused Gmail, Slack, LinkedIn, textarea, input, or contenteditable editors when supported.
+- Shows a copyable result in the Glean panel when no editable field was focused.
 - Never auto-sends.
-- Shows exact Glean token/model metadata when the Chat API response includes it, otherwise falls back to approximate token counts. The authoritative place for exact model/provider/token accounting may be Glean customer event logs such as `LLM_CALL`.
-- Vendor-list-price cost estimates are directional only and may not match Glean billing or contracted pricing.
 - Does not request Gmail API scopes or calendar tokens. Calendar availability is requested only through Glean actions when Glean supports it.
 
 ## Useful Commands

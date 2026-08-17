@@ -5,8 +5,8 @@ import { z } from "zod";
 import type { DraftCalendarStatus, DraftErrorPayload, DraftResponsePayload, GroundingSource } from "@gmail-glean-reply-drafter/shared";
 import type { AppConfig } from "./config.js";
 import { draftWithGlean, testGleanConnection } from "./gleanClient.js";
-import { buildNewEmailPrompt, buildReplyPrompt, buildSlackReplyPrompt, hasSlackSchedulingIntent } from "./prompt.js";
-import { draftRequestSchema, newEmailRequestSchema, slackDraftRequestSchema, type ValidDraftRequest, type ValidNewEmailRequest, type ValidSlackDraftRequest } from "./schema.js";
+import { buildNewEmailPrompt, buildReplyPrompt, buildSlackReplyPrompt, buildWebResponsePrompt, hasSlackSchedulingIntent } from "./prompt.js";
+import { draftRequestSchema, newEmailRequestSchema, slackDraftRequestSchema, webDraftRequestSchema, type ValidDraftRequest, type ValidNewEmailRequest, type ValidSlackDraftRequest, type ValidWebDraftRequest } from "./schema.js";
 
 const testGleanConnectionSchema = z.object({
   gleanServerUrl: z.string().url().optional(),
@@ -61,7 +61,7 @@ export function createBackendApp(config: AppConfig) {
 
     const suppliedSecret = req.header("x-backend-secret");
     if (!suppliedSecret || !secureStringEquals(suppliedSecret, config.sharedSecret)) {
-      res.status(401).json({ error: "Extension is not paired with Gmail Glean Helper. Open the helper app, click Pair extension, then try again." });
+      res.status(401).json({ error: "Extension is not paired with Glean Response Helper. Open the helper app, click Pair extension, then try again." });
       return;
     }
 
@@ -312,6 +312,60 @@ export function createBackendApp(config: AppConfig) {
     }
   });
 
+  app.post("/draft-web-response", async (req, res) => {
+    const startedAt = Date.now();
+    const requestId = req.body?.clientRequestId || crypto.randomUUID();
+    const parsed = webDraftRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const body: DraftErrorPayload = {
+        error: "Invalid web response request payload.",
+        requestId,
+        warnings: parsed.error.issues.map((issue) => issue.message),
+      };
+      res.status(400).json(body);
+      return;
+    }
+
+    const payload = parsed.data;
+    console.info("web_draft_started", {
+      requestId,
+      hostname: safeHostname(payload.pageUrl),
+      hasSelection: Boolean(payload.selectedText),
+      activeComposerDetected: payload.activeComposerDetected,
+    });
+
+    try {
+      const schedulingIntent = hasWebSchedulingIntent(payload);
+      const prompt = buildWebResponsePrompt(payload, config.replySettings);
+      const contextChars = payload.selectedText.length + payload.nearbyText.length + payload.pageText.length;
+      const result = await draftWithGlean(prompt, config, {
+        messageCount: payload.nearbyText ? 1 : 0,
+        totalBodyChars: contextChars,
+        userInstructionChars: payload.userInstruction.length,
+        schedulingIntent,
+      });
+      const response: DraftResponsePayload = {
+        draft: result.draft,
+        variants: result.variants,
+        selectedVariantIndex: 0,
+        effectiveGleanMode: result.effectiveMode,
+        overwriteBehavior: config.replySettings.overwriteBehavior,
+        summary: `Drafted a response for ${safeHostname(payload.pageUrl)} using ${result.effectiveMode} mode.`,
+        groundingSources: buildWebGroundingSources(payload),
+        tokenUsage: result.tokenUsage,
+        requestId,
+        warnings: [],
+      };
+      console.info("web_draft_succeeded", { requestId, latencyMs: Date.now() - startedAt, tokenUsage: result.tokenUsage });
+      res.json(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Web response generation failed.";
+      console.warn("web_draft_failed", { requestId, latencyMs: Date.now() - startedAt, error: message });
+      const body: DraftErrorPayload = { error: toFriendlyDraftError(message), requestId };
+      res.status(isGleanAuthError(message) ? 401 : message.includes("timed out") ? 504 : 502).json(body);
+    }
+  });
+
   return app;
 }
 
@@ -319,10 +373,10 @@ function toFriendlyDraftError(message: string) {
   const normalized = message.toLowerCase();
   if (isGleanAuthError(message)) return getGleanAuthErrorMessage();
   if (normalized.includes("timed out") || normalized.includes("timeout")) {
-    return "Glean timed out: Open Gmail Glean Helper, increase Timeout, then try again. For scheduling requests, keep Thinking mode because calendar checks can take longer.";
+    return "Glean timed out: Open Glean Response Helper, increase Timeout, then try again. For scheduling requests, keep Thinking mode because calendar checks can take longer.";
   }
   if (normalized.includes("not configured") || normalized.includes("glean is not configured")) {
-    return "Glean is not configured: Open Gmail Glean Helper, enter your Glean server URL and Client API token, click Save, then Test Glean.";
+    return "Glean is not configured: Open Glean Response Helper, enter your Glean server URL and Client API token, click Save, then Test Glean.";
   }
   if (normalized.includes("empty draft")) {
     return "No draft returned: Try again with a clearer instruction. If this was a scheduling request, confirm your Glean tenant has a calendar action enabled.";
@@ -339,7 +393,7 @@ function isGleanAuthError(message: string) {
 }
 
 function getGleanAuthErrorMessage() {
-  return "Glean token problem: open Gmail Glean Helper, paste a fresh Client API token with CHAT and SEARCH scopes, click Save and start, then try again.";
+  return "Glean token problem: open Glean Response Helper, paste a fresh Client API token with CHAT and SEARCH scopes, click Save and start, then try again.";
 }
 
 function secureStringEquals(a: string, b: string) {
@@ -418,6 +472,29 @@ function buildSlackGroundingSources(payload: ValidSlackDraftRequest, schedulingI
   sources.push({ label: "Glean mode", detail: effectiveMode === "thinking" ? "Thinking mode was used for deeper reasoning." : "Fast mode was used for a quick draft." });
   if (schedulingIntent) sources.push({ label: "Calendar availability", detail: "Requested through any available Glean calendar/free-busy action. This app does not connect to Google Calendar directly." });
   return sources;
+}
+
+function buildWebGroundingSources(payload: ValidWebDraftRequest): GroundingSource[] {
+  const sources: GroundingSource[] = [];
+  if (payload.selectedText) sources.push({ label: "Selected text", detail: "The text selected on the page was prioritized." });
+  if (payload.nearbyText) sources.push({ label: "Nearby page context", detail: "Visible text around the active response field was included." });
+  if (payload.pageText) sources.push({ label: "Visible page", detail: `Visible text from ${safeHostname(payload.pageUrl)} was included.` });
+  if (payload.activeFieldText) sources.push({ label: "Current draft", detail: "Existing text in the active field was used as draft context." });
+  sources.push({ label: "User instruction", detail: "The instruction typed in the Glean panel was included." });
+  return sources;
+}
+
+function hasWebSchedulingIntent(payload: ValidWebDraftRequest) {
+  const text = [payload.userInstruction, payload.selectedText, payload.nearbyText, payload.activeFieldText].join("\n").toLowerCase();
+  return /\b(schedule|scheduling|calendar|available|availability|free|busy|meet|meeting|call|sync|slot|slots|time|times|tomorrow|today|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|am|pm)\b/.test(text);
+}
+
+function safeHostname(value: string) {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return "this page";
+  }
 }
 
 function buildCalendarStatus(schedulingIntent: boolean): DraftCalendarStatus {

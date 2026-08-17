@@ -79,6 +79,20 @@ export interface SlackDraftRequestPayload {
   clientRequestId: string;
 }
 
+export interface WebDraftRequestPayload {
+  pageTitle: string;
+  pageUrl: string;
+  selectedText: string;
+  nearbyText: string;
+  pageText: string;
+  activeFieldText: string;
+  userInstruction: string;
+  clientTimezone?: string;
+  activeComposerDetected: boolean;
+  timestamp: string;
+  clientRequestId: string;
+}
+
 export interface GroundingSource {
   label: string;
   detail: string;

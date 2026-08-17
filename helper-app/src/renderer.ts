@@ -53,7 +53,6 @@ interface HelperApi {
   openUrl(url: string): Promise<void>;
   openExtensionFolder(): Promise<ExtensionActionResult>;
   pairExtension(): Promise<ExtensionActionResult>;
-  copyPairingLink(): Promise<void>;
   copyManualInstallCommand(): Promise<string>;
   copyManualPairingSettings(): Promise<string>;
   clearGleanToken(): Promise<HelperStatus>;
@@ -87,10 +86,6 @@ const stepToken = document.querySelector<HTMLElement>("#stepToken");
 const stepServer = document.querySelector<HTMLElement>("#stepServer");
 const stepExtension = document.querySelector<HTMLElement>("#stepExtension");
 const stepPair = document.querySelector<HTMLElement>("#stepPair");
-const healthBackend = document.querySelector<HTMLElement>("#healthBackend");
-const healthToken = document.querySelector<HTMLElement>("#healthToken");
-const healthSecret = document.querySelector<HTMLElement>("#healthSecret");
-const healthExtension = document.querySelector<HTMLElement>("#healthExtension");
 const connectSection = document.querySelector<HTMLElement>("#connectSection");
 const statusText = document.querySelector<HTMLElement>("#statusText");
 const tokenState = document.querySelector<HTMLElement>("#tokenState");
@@ -101,7 +96,6 @@ const openExtensionsButton = document.querySelector<HTMLButtonElement>("#openExt
 const openShortcutsButton = document.querySelector<HTMLButtonElement>("#openShortcuts");
 const openExtensionFolderButton = document.querySelector<HTMLButtonElement>("#openExtensionFolder");
 const pairExtensionButton = document.querySelector<HTMLButtonElement>("#pairExtension");
-const copyPairingLinkButton = document.querySelector<HTMLButtonElement>("#copyPairingLink");
 const copyManualInstallCommandButton = document.querySelector<HTMLButtonElement>("#copyManualInstallCommand");
 const copyManualPairingSettingsButton = document.querySelector<HTMLButtonElement>("#copyManualPairingSettings");
 const clearTokenButton = document.querySelector<HTMLButtonElement>("#clearToken");
@@ -184,12 +178,6 @@ pairExtensionButton?.addEventListener("click", async () => {
     const result = await window.gmailGleanHelper.pairExtension();
     renderStatus(await window.gmailGleanHelper.getStatus());
     setMessage(formatPairingSuccess(result), "neutral");
-  });
-});
-
-copyPairingLinkButton?.addEventListener("click", async () => {
-  await runAction("Pairing link copied.", async () => {
-    await window.gmailGleanHelper.copyPairingLink();
   });
 });
 
@@ -288,26 +276,6 @@ function renderSetup(status: HelperStatus) {
   setStep(stepExtension, extensionReady, "3", status.bundledExtensionReady);
   setStep(stepPair, pairReady, "4");
 
-  setHealth(healthBackend, serverReady, "Backend", serverReady ? `Running on localhost:${status.port}` : status.serverError || "Stopped. Click Start helper.");
-  setHealth(healthToken, tokenReady, "Glean token", tokenReady ? "Saved in macOS secure storage." : "Missing. Paste a Client API token and save.");
-  setHealth(
-    healthSecret,
-    pairReady,
-    "Extension pairing",
-    pairReady
-      ? `Confirmed ${formatRelativeTime(status.extensionPairedAt)}`
-      : status.hasLocalSecret
-        ? "Not confirmed. Click Pair extension, then reload Gmail."
-        : "Missing local secret. Rotate pairing secret."
-  );
-  setHealth(healthExtension, extensionReady, "Extension folder", getExtensionHealthDetail(status, pairReady), status.bundledExtensionReady);
-}
-
-function formatRelativeTime(value: string | undefined) {
-  if (!value) return "recently";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "recently";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function setStep(element: HTMLElement | null, done: boolean, fallbackLabel: string, available = true) {
@@ -316,18 +284,6 @@ function setStep(element: HTMLElement | null, done: boolean, fallbackLabel: stri
   element.classList.toggle("warn", !available);
   const badge = element.querySelector<HTMLElement>(".badge");
   if (badge) badge.textContent = done ? "✓" : fallbackLabel;
-}
-
-function setHealth(element: HTMLElement | null, done: boolean, title: string, detail: string, available = true) {
-  if (!element) return;
-  element.classList.toggle("done", done);
-  element.classList.toggle("warn", !done && available);
-  const badge = element.querySelector<HTMLElement>(".badge");
-  const strong = element.querySelector<HTMLElement>("strong");
-  const small = element.querySelector<HTMLElement>("small");
-  if (badge) badge.textContent = done ? "✓" : available ? "!" : "×";
-  if (strong) strong.textContent = title;
-  if (small) small.textContent = detail;
 }
 
 async function runAction(successText: string | undefined, action: () => Promise<void>) {
@@ -384,24 +340,6 @@ function appendWarnings(base: string, warnings: string[]) {
   return `${base} ${warnings.join(" ")}`;
 }
 
-function getExtensionHealthDetail(status: HelperStatus, pairReady: boolean) {
-  if (!status.bundledExtensionReady) {
-    return `Packaged extension problem: ${status.bundledExtensionDetail}`;
-  }
-
-  if (status.extensionFolderReady) {
-    if (!status.extensionVersionMatches) return status.extensionFolderDetail;
-    const version = status.extensionManifestVersion ? ` Version ${status.extensionManifestVersion}.` : "";
-    return `Verified at ${status.extensionPath}.${version}`;
-  }
-
-  if (status.extensionPairedAt && status.extensionPairedVersion !== status.bundledExtensionManifestVersion) {
-    return `Chrome last confirmed version ${status.extensionPairedVersion || "unknown"}; current version is ${status.bundledExtensionManifestVersion || "unknown"}. Reload the extension, then click Pair extension.`;
-  }
-
-  return `Click Install / refresh extension. ${status.extensionFolderDetail}`;
-}
-
 function readReplySettings(): ReplySettings {
   return {
     replyMode: readSelect(replyMode, "auto") as ReplyMode,
@@ -424,7 +362,6 @@ function setBusy(busy: boolean) {
     restartButton,
     openExtensionFolderButton,
     pairExtensionButton,
-    copyPairingLinkButton,
     copyManualInstallCommandButton,
     copyManualPairingSettingsButton,
     clearTokenButton,
@@ -454,7 +391,7 @@ function toFriendlyError(error: unknown) {
     return "Pairing problem: click Pair extension, then reload Gmail and try again.";
   }
   if (text.includes("fetch failed") || text.includes("econnrefused") || text.includes("could not reach")) {
-    return "Helper connection problem: click Restart server. If that does not work, quit and reopen Gmail Glean Helper.";
+    return "Helper connection problem: click Restart helper. If that does not work, quit and reopen Glean Response Helper.";
   }
   if (text.includes("403")) {
     return "Access problem: check your Glean token scopes. For scheduling, confirm a calendar/free-busy action is enabled in Glean. Then click Save and Test Glean.";

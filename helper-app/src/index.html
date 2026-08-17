@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
     />
-    <title>Gmail Glean Helper</title>
+    <title>Glean Response Helper</title>
     <style>
       :root {
         color: #202124;
@@ -78,14 +78,12 @@
         transition: width 180ms ease;
         width: 0%;
       }
-      .setup-grid,
-      .health-grid {
+      .setup-grid {
         display: grid;
         gap: 10px;
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
-      .setup-step,
-      .health-item {
+      .setup-step {
         align-items: center;
         background: #f8fafc;
         border: 1px solid #e3e7ee;
@@ -96,13 +94,11 @@
         min-height: 48px;
         padding: 10px 12px;
       }
-      .setup-step strong,
-      .health-item strong {
+      .setup-step strong {
         color: #202124;
         display: block;
       }
-      .setup-step small,
-      .health-item small {
+      .setup-step small {
         color: #5f6368;
         display: block;
         font-size: 12px;
@@ -120,23 +116,19 @@
         justify-content: center;
         width: 24px;
       }
-      .setup-step.done,
-      .health-item.done {
+      .setup-step.done {
         background: #f0f9f3;
         border-color: #c8ead2;
       }
-      .setup-step.done .badge,
-      .health-item.done .badge {
+      .setup-step.done .badge {
         background: #188038;
         color: #ffffff;
       }
-      .setup-step.warn,
-      .health-item.warn {
+      .setup-step.warn {
         background: #fff8e1;
         border-color: #f6d889;
       }
-      .setup-step.warn .badge,
-      .health-item.warn .badge {
+      .setup-step.warn .badge {
         background: #f9ab00;
         color: #202124;
       }
@@ -276,8 +268,7 @@
       }
       @media (max-width: 760px) {
         .split,
-        .setup-grid,
-        .health-grid {
+        .setup-grid {
           grid-template-columns: 1fr;
         }
         .hero-title {
@@ -289,16 +280,20 @@
   <body>
     <main>
       <header>
-        <h1>Gmail Glean Helper</h1>
-        <p>Runs the local backend that lets the Chrome extension ask Glean to draft Gmail replies.</p>
+        <h1>Glean Response Helper</h1>
+        <p>Connects the browser extension to Glean for drafting replies in Gmail, Slack, LinkedIn, and other web pages.</p>
       </header>
 
 
       <section class="hero">
         <div class="hero-title">
           <div>
-            <h2>Setup guide</h2>
-            <p>Follow the four checks below. When they are green, Gmail drafting is ready.</p>
+            <h2>Readiness</h2>
+            <div class="status" style="margin-top: 6px">
+              <span id="statusDot" class="dot off"></span>
+              <strong id="statusText">Checking helper...</strong>
+              <span id="tokenState" class="hint"></span>
+            </div>
           </div>
           <button id="refreshStatus" type="button" class="secondary">Refresh status</button>
         </div>
@@ -327,26 +322,8 @@
         </div>
       </section>
 
-      <section>
-        <h2>Health checklist</h2>
-        <div class="health-grid">
-          <div id="healthBackend" class="health-item"><span class="badge">•</span><span><strong>Backend</strong><small>Checking...</small></span></div>
-          <div id="healthToken" class="health-item"><span class="badge">•</span><span><strong>Glean token</strong><small>Checking...</small></span></div>
-          <div id="healthSecret" class="health-item"><span class="badge">•</span><span><strong>Extension pairing</strong><small>Checking...</small></span></div>
-          <div id="healthExtension" class="health-item"><span class="badge">•</span><span><strong>Extension folder</strong><small>Checking...</small></span></div>
-        </div>
-      </section>
-
-      <section>
-        <div class="status">
-          <span id="statusDot" class="dot off"></span>
-          <strong id="statusText">Checking server...</strong>
-          <span id="tokenState" class="hint"></span>
-        </div>
-      </section>
-
       <section id="connectSection" class="form">
-        <h2>Connect Glean</h2>
+        <h2>Glean connection</h2>
         <label>
           Glean server URL
           <input id="serverUrl" type="text" placeholder="https://your-instance-be.glean.com" />
@@ -358,134 +335,108 @@
         </label>
         <label class="check">
           <input id="launchAtLogin" type="checkbox" />
-          Start Gmail Glean Helper when I log in
-        </label>
-      </section>
-
-      <section class="form">
-        <h2>Reply settings</h2>
-        <div class="split">
-          <label>
-            Response mode
-            <select id="replyMode">
-              <option value="auto">Auto</option>
-              <option value="fast">Fast</option>
-              <option value="thinking">Thinking</option>
-            </select>
-            <span class="hint">Auto uses Fast for short emails and Thinking for longer or threaded conversations.</span>
-          </label>
-          <label>
-            Tone
-            <select id="defaultTone">
-              <option value="concise">Concise</option>
-              <option value="warm">Warm</option>
-              <option value="formal">Formal</option>
-              <option value="direct">Direct</option>
-            </select>
-          </label>
-          <label>
-            Length
-            <select id="defaultLength">
-              <option value="short">Short</option>
-              <option value="medium">Medium</option>
-              <option value="detailed">Detailed</option>
-            </select>
-          </label>
-          <label>
-            Draft behavior
-            <select id="overwriteBehavior">
-              <option value="replace">Replace composer text</option>
-              <option value="append">Append below composer text</option>
-            </select>
-          </label>
-          <label>
-            Context
-            <select id="contextDepth">
-              <option value="visibleThread">Visible thread</option>
-              <option value="latest">Latest message only</option>
-            </select>
-          </label>
-          <label>
-            Timeout
-            <select id="gleanTimeoutMs">
-              <option value="15000">15 seconds</option>
-              <option value="30000">30 seconds</option>
-              <option value="45000">45 seconds</option>
-              <option value="90000">90 seconds</option>
-            </select>
-          </label>
-        </div>
-        <label>
-          Writing preferences
-          <textarea id="writingPreferences" rows="4" placeholder="Do not use em dashes. Write concise, warm, direct replies."></textarea>
-          <span class="hint">Saved locally. These instructions are added to every draft prompt.</span>
+          Start Glean Response Helper when I log in
         </label>
         <div class="row">
           <button id="save" type="button">Save and start</button>
           <button id="test" type="button" class="secondary">Test Glean</button>
-          <button id="restart" type="button" class="secondary">Restart server</button>
-          <button id="clearToken" type="button" class="secondary">Clear token</button>
         </div>
         <div id="message" class="message neutral">Paste a Client API token, then test the connection.</div>
-      </section>
-
-      <div class="split">
-        <section>
-          <h2>Create a Glean token</h2>
+        <details>
+          <summary><strong>Response preferences</strong></summary>
+          <div class="split" style="margin-top: 14px">
+            <label>
+              Response mode
+              <select id="replyMode">
+                <option value="auto">Auto</option>
+                <option value="fast">Fast</option>
+                <option value="thinking">Thinking</option>
+              </select>
+            </label>
+            <label>
+              Tone
+              <select id="defaultTone">
+                <option value="concise">Concise</option>
+                <option value="warm">Warm</option>
+                <option value="formal">Formal</option>
+                <option value="direct">Direct</option>
+              </select>
+            </label>
+            <label>
+              Length
+              <select id="defaultLength">
+                <option value="short">Short</option>
+                <option value="medium">Medium</option>
+                <option value="detailed">Detailed</option>
+              </select>
+            </label>
+            <label>
+              Existing text
+              <select id="overwriteBehavior">
+                <option value="replace">Replace it</option>
+                <option value="append">Append below it</option>
+              </select>
+            </label>
+            <label>
+              Email and Slack context
+              <select id="contextDepth">
+                <option value="visibleThread">Visible thread</option>
+                <option value="latest">Latest message only</option>
+              </select>
+            </label>
+            <label>
+              Timeout
+              <select id="gleanTimeoutMs">
+                <option value="15000">15 seconds</option>
+                <option value="30000">30 seconds</option>
+                <option value="45000">45 seconds</option>
+                <option value="90000">90 seconds</option>
+              </select>
+            </label>
+          </div>
+          <label style="margin-top: 14px">
+            Writing preferences
+            <textarea id="writingPreferences" rows="3" placeholder="Write concise, warm, direct replies."></textarea>
+          </label>
+        </details>
+        <details>
+          <summary><strong>How to create a Glean token</strong></summary>
           <ol>
             <li>Open Glean in your browser.</li>
-            <li>Click the Glean logo in the bottom-left corner.</li>
-            <li>Open Admin Console or Settings.</li>
-            <li>Open API tokens.</li>
-            <li>Create a Client API token.</li>
-            <li>Add the <code>CHAT</code> and <code>SEARCH</code> scopes.</li>
-            <li>If your Glean admin exposes calendar action or Google Calendar access for Client API tokens, include it. If not, scheduling drafts will still ask Glean to use any tenant-enabled calendar action and will tell you to verify times when availability cannot be confirmed.</li>
+            <li>Open Admin Console or Settings, then API tokens.</li>
+            <li>Create a Client API token with the <code>CHAT</code> and <code>SEARCH</code> scopes.</li>
             <li>Copy the token and paste it above.</li>
           </ol>
-        </section>
+        </details>
+      </section>
 
-        <section>
-          <h2>Chrome extension</h2>
-          <p class="message neutral" style="margin-bottom: 12px">Copy or refresh the extension after every helper app update. The helper verifies the files, opens the copied folder and Chrome's extension page, and puts the folder path on your clipboard. Chrome still requires Load unpacked or Reload. Pairing opens the extension details page and copies values for its Options page.</p>
-          <ol>
-            <li>Click <strong>Install / refresh extension</strong>. Confirm the helper reports the current extension version.</li>
-            <li>Enable Developer Mode.</li>
-            <li>Click Load unpacked.</li>
-            <li>Choose the copied folder path, then select <code>Gmail Glean Reply Extension</code>. If it is already installed, click its reload icon and confirm Chrome shows the current version.</li>
-            <li>Click <strong>Pair extension</strong>. In Chrome, click Extension options, paste the two copied lines into the fields, and click Save. The helper then records the running extension version under “Chrome confirmed version.”</li>
-            <li>Use <code>Cmd+Shift+Y</code> in a Gmail reply.</li>
-          </ol>
-          <p class="hint" style="margin-top: 10px">Extension install folder: <code id="extensionPath">Checking...</code></p>
-          <p class="hint" style="margin-top: 8px">Bundled version: <code id="bundledExtensionVersion">Checking...</code> | Copied version: <code id="extensionVersion">Checking...</code> | Chrome confirmed version: <code id="pairedExtensionVersion">Not verified yet</code></p>
-          <p class="hint" style="margin-top: 8px">Pinned extension ID: <code id="extensionId">Checking...</code></p>
-          <div class="row" style="margin-top: 14px">
-            <button id="openExtensionFolder" type="button">Install / refresh extension</button>
-            <button id="pairExtension" type="button">Pair extension</button>
-            <button id="copyPairingLink" type="button" class="secondary">Copy pairing link</button>
+      <section>
+        <h2>Browser extension</h2>
+        <p>Install the bundled extension, pair it once, then press <code>Cmd+Shift+Y</code> from any regular web page. Focus a reply field first to insert the draft automatically.</p>
+        <div class="row" style="margin-top: 14px">
+          <button id="openExtensionFolder" type="button">Install / refresh</button>
+          <button id="pairExtension" type="button">Pair extension</button>
+          <button id="openShortcuts" type="button" class="secondary">Shortcut settings</button>
+        </div>
+        <p class="hint" style="margin-top: 12px">Version <code id="bundledExtensionVersion">Checking...</code>, installed <code id="extensionVersion">Checking...</code>, Chrome confirmed <code id="pairedExtensionVersion">Not verified yet</code></p>
+        <details style="margin-top: 14px">
+          <summary><strong>Advanced setup and troubleshooting</strong></summary>
+          <p class="hint" style="margin-top: 12px">Install folder: <code id="extensionPath">Checking...</code></p>
+          <p class="hint" style="margin-top: 8px">Extension ID: <code id="extensionId">Checking...</code></p>
+          <div class="row" style="margin-top: 12px">
             <button id="openExtensions" type="button" class="secondary">Open extensions</button>
-            <button id="openShortcuts" type="button" class="secondary">Open shortcuts</button>
-            <button id="rotateSecret" type="button" class="secondary">Rotate pairing secret</button>
+            <button id="restart" type="button" class="secondary">Restart helper</button>
+            <button id="clearToken" type="button" class="secondary">Clear token</button>
+            <button id="rotateSecret" type="button" class="secondary">Reset pairing</button>
           </div>
-          <details style="margin-top: 14px">
-            <summary>Manual steps to set up</summary>
-            <p class="hint">Use these steps if automatic buttons or Chrome launch are blocked. The command is generated for this app and this Mac user. It tries your Desktop first, then uses a private writable app folder if Desktop access is restricted.</p>
-            <pre id="manualInstallCommand" class="manual-command">Preparing command...</pre>
-            <div class="row">
-              <button id="copyManualInstallCommand" type="button" class="secondary">Copy Terminal command</button>
-              <button id="copyManualPairingSettings" type="button" class="secondary">Copy pairing values</button>
-            </div>
-            <ol>
-              <li>Copy the full command above, paste it into Terminal, and press Return.</li>
-              <li>Open <code>chrome://extensions</code> in Chrome and turn on <strong>Developer mode</strong>.</li>
-              <li>Choose <strong>Load unpacked</strong> for the first install, or click <strong>Reload</strong> on the existing extension.</li>
-              <li>Select the <code>Gmail Glean Reply Extension</code> folder shown by the helper after copying.</li>
-              <li>For pairing, open the extension's <strong>Options</strong> page. Paste the Backend URL into the first field and the Backend shared secret into the second field, then click <strong>Save</strong>.</li>
-            </ol>
-            <p class="hint">The pairing values below are two separate lines: Backend URL first, Backend shared secret second. If a clipboard blocker prevents copying, select each line and type it into the matching Options field.</p>
-            <pre id="manualPairingSettings" class="manual-command">Preparing pairing values...</pre>
-          </details>
-        </section>
-      </div>
+          <pre id="manualInstallCommand" class="manual-command">Preparing manual install command...</pre>
+          <div class="row">
+            <button id="copyManualInstallCommand" type="button" class="secondary">Copy install command</button>
+            <button id="copyManualPairingSettings" type="button" class="secondary">Copy pairing values</button>
+          </div>
+          <pre id="manualPairingSettings" class="manual-command">Preparing pairing values...</pre>
+        </details>
+      </section>
     </main>
     <script src="renderer.js"></script>
   </body>
