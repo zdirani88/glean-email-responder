@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { DEFAULT_REPLY_SETTINGS, type ReplySettings } from "@gmail-glean-reply-drafter/shared";
+import { DEFAULT_BACKEND_PORT, DEFAULT_REPLY_SETTINGS, LOCAL_BACKEND_HOST, type ReplySettings } from "@gmail-glean-reply-drafter/shared";
 
 export interface AppConfig {
   port: number;
@@ -15,8 +15,8 @@ export interface AppConfig {
 
 export function loadConfig(): AppConfig {
   const config: AppConfig = {
-    port: Number(process.env.PORT ?? 8787),
-    host: process.env.HOST?.trim() || "127.0.0.1",
+    port: Number(process.env.PORT ?? DEFAULT_BACKEND_PORT),
+    host: process.env.HOST?.trim() || LOCAL_BACKEND_HOST,
     gleanTimeoutMs: Number(process.env.GLEAN_TIMEOUT_MS ?? 15000),
     gleanStubMode: (process.env.GLEAN_STUB_MODE ?? "false").toLowerCase() === "true",
     replySettings: { ...DEFAULT_REPLY_SETTINGS },

@@ -1,7 +1,10 @@
 import type { BackgroundMessage, BackgroundResponse, ExtensionConfig } from "./types";
+import { BACKEND_ENDPOINTS, DEFAULT_BACKEND_BASE_URL, type DraftResponsePayload } from "@gmail-glean-reply-drafter/shared";
+
+type DraftEndpoint = typeof BACKEND_ENDPOINTS.emailReply | typeof BACKEND_ENDPOINTS.newEmail | typeof BACKEND_ENDPOINTS.slackReply | typeof BACKEND_ENDPOINTS.webResponse;
 
 const DEFAULT_CONFIG: ExtensionConfig = {
-  backendBaseUrl: "http://127.0.0.1:8787",
+  backendBaseUrl: DEFAULT_BACKEND_BASE_URL,
 };
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -35,7 +38,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage, _sender, sendR
   return true;
 });
 
-async function requestDraft(payload: BackgroundMessage["payload"], endpoint: "/draft-email-reply" | "/draft-new-email" | "/draft-slack-reply" | "/draft-web-response"): Promise<BackgroundResponse> {
+async function requestDraft(payload: BackgroundMessage["payload"], endpoint: DraftEndpoint): Promise<BackgroundResponse> {
   const config = await getConfig();
   const baseUrl = config.backendBaseUrl.replace(/\/$/, "");
 
@@ -49,12 +52,21 @@ async function requestDraft(payload: BackgroundMessage["payload"], endpoint: "/d
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
+    const responseText = await res.text();
+    const data = parseBackendJson(responseText);
     if (!res.ok) {
-      return { ok: false, error: toFriendlyBackendError(data.error ?? `Backend returned ${res.status}`, res.status) };
+      if (res.status === 404) {
+        return { ok: false, error: "Helper update required: quit the currently running helper, install the latest DMG in Applications, reopen it, then pair and refresh the extension." };
+      }
+      const backendError = data && typeof data.error === "string" ? data.error : `Backend returned ${res.status}`;
+      return { ok: false, error: toFriendlyBackendError(backendError, res.status) };
     }
 
-    return { ok: true, data };
+    if (!data || typeof data.draft !== "string") {
+      return { ok: false, error: "Helper update required: the running helper returned an incompatible response. Install and reopen the latest DMG, then refresh the extension." };
+    }
+
+    return { ok: true, data: data as unknown as DraftResponsePayload };
   } catch (error) {
     return {
       ok: false,
@@ -63,11 +75,21 @@ async function requestDraft(payload: BackgroundMessage["payload"], endpoint: "/d
   }
 }
 
+function parseBackendJson(value: string): Record<string, unknown> | undefined {
+  if (!value.trim()) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function getDraftEndpoint(type: BackgroundMessage["type"]) {
-  if (type === "REQUEST_NEW_EMAIL_DRAFT") return "/draft-new-email";
-  if (type === "REQUEST_SLACK_DRAFT") return "/draft-slack-reply";
-  if (type === "REQUEST_WEB_DRAFT") return "/draft-web-response";
-  return "/draft-email-reply";
+  if (type === "REQUEST_NEW_EMAIL_DRAFT") return BACKEND_ENDPOINTS.newEmail;
+  if (type === "REQUEST_SLACK_DRAFT") return BACKEND_ENDPOINTS.slackReply;
+  if (type === "REQUEST_WEB_DRAFT") return BACKEND_ENDPOINTS.webResponse;
+  return BACKEND_ENDPOINTS.emailReply;
 }
 
 function isSupportedDraftUrl(url: string | undefined) {

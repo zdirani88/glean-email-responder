@@ -1,16 +1,17 @@
 import type { ExtensionConfig } from "./types";
+import { BACKEND_ENDPOINTS, DEFAULT_BACKEND_BASE_URL, LOCAL_BACKEND_HOST } from "@gmail-glean-reply-drafter/shared";
 
 const backendBaseUrl = document.querySelector<HTMLInputElement>("#backendBaseUrl");
 const backendSecret = document.querySelector<HTMLInputElement>("#backendSecret");
 const statusEl = document.querySelector<HTMLElement>("#status");
 
-const DEFAULT_BACKEND_URL = "http://127.0.0.1:8787";
+if (backendBaseUrl) backendBaseUrl.placeholder = DEFAULT_BACKEND_BASE_URL;
 
 void restore();
 
 document.querySelector<HTMLButtonElement>("#save")?.addEventListener("click", async () => {
   await chrome.storage.local.set({
-    backendBaseUrl: backendBaseUrl?.value.trim() || DEFAULT_BACKEND_URL,
+    backendBaseUrl: backendBaseUrl?.value.trim() || DEFAULT_BACKEND_BASE_URL,
     backendSecret: backendSecret?.value.trim() || "",
   });
 
@@ -26,7 +27,7 @@ async function restore() {
   }
 
   const stored = await chrome.storage.local.get(["backendBaseUrl", "backendSecret"]);
-  if (backendBaseUrl) backendBaseUrl.value = String(stored.backendBaseUrl || DEFAULT_BACKEND_URL);
+  if (backendBaseUrl) backendBaseUrl.value = String(stored.backendBaseUrl || DEFAULT_BACKEND_BASE_URL);
   if (backendSecret) backendSecret.value = String(stored.backendSecret || "");
 }
 
@@ -43,7 +44,7 @@ function readPairingPayload(): ExtensionConfig | undefined {
 
     const backendBaseUrl = parsed.backendBaseUrl.trim();
     const backendSecret = parsed.backendSecret.trim();
-    if (!backendBaseUrl.startsWith("http://127.0.0.1:") || !backendSecret) {
+    if (!backendBaseUrl.startsWith(`http://${LOCAL_BACKEND_HOST}:`) || !backendSecret) {
       return undefined;
     }
 
@@ -56,7 +57,7 @@ function readPairingPayload(): ExtensionConfig | undefined {
 
 async function confirmPairing(config: ExtensionConfig) {
   try {
-    const res = await fetch(`${config.backendBaseUrl.replace(/\/$/, "")}/pairing-confirmed`, {
+    const res = await fetch(`${config.backendBaseUrl.replace(/\/$/, "")}${BACKEND_ENDPOINTS.pairingConfirmed}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

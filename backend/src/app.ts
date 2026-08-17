@@ -2,7 +2,7 @@ import cors from "cors";
 import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import { z } from "zod";
-import type { DraftCalendarStatus, DraftErrorPayload, DraftResponsePayload, GroundingSource } from "@gmail-glean-reply-drafter/shared";
+import { BACKEND_API_VERSION, BACKEND_ENDPOINTS, LOCAL_BACKEND_HOST, type DraftCalendarStatus, type DraftErrorPayload, type DraftResponsePayload, type GroundingSource } from "@gmail-glean-reply-drafter/shared";
 import type { AppConfig } from "./config.js";
 import { draftWithGlean, testGleanConnection } from "./gleanClient.js";
 import { buildNewEmailPrompt, buildReplyPrompt, buildSlackReplyPrompt, buildWebResponsePrompt, hasSlackSchedulingIntent } from "./prompt.js";
@@ -17,7 +17,8 @@ export function createBackendApp(config: AppConfig) {
   const app = express();
   const requestTimestampsByIp = new Map<string, number[]>();
 
-  const allowedOrigins = [/^chrome-extension:\/\//, /^http:\/\/localhost(:\d+)?$/, /^http:\/\/127\.0\.0\.1(:\d+)?$/];
+  const loopbackOrigin = new RegExp(`^http://${LOCAL_BACKEND_HOST.replaceAll(".", "\\.")}(:\\d+)?$`);
+  const allowedOrigins = [/^chrome-extension:\/\//, /^http:\/\/localhost(:\d+)?$/, loopbackOrigin];
 
   app.use(
     cors({
@@ -68,21 +69,22 @@ export function createBackendApp(config: AppConfig) {
     next();
   });
 
-  app.get("/health", (_req, res) => {
+  app.get(BACKEND_ENDPOINTS.health, (_req, res) => {
     res.json({
       ok: true,
+      apiVersion: BACKEND_API_VERSION,
       gleanConfigured: Boolean(config.gleanStubMode || (config.gleanServerUrl && config.gleanApiToken)),
       stubMode: config.gleanStubMode,
     });
   });
 
-  app.post("/pairing-confirmed", async (req, res) => {
+  app.post(BACKEND_ENDPOINTS.pairingConfirmed, async (req, res) => {
     const extensionVersion = typeof req.body?.extensionVersion === "string" ? req.body.extensionVersion.trim().slice(0, 32) : undefined;
     await config.onPairingConfirmed?.(extensionVersion);
     res.json({ ok: true });
   });
 
-  app.post("/test-glean-connection", async (req, res) => {
+  app.post(BACKEND_ENDPOINTS.testGleanConnection, async (req, res) => {
     const parsed = testGleanConnectionSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "Invalid connection test payload." });
@@ -112,7 +114,7 @@ export function createBackendApp(config: AppConfig) {
     }
   });
 
-  app.post("/draft-email-reply", async (req, res) => {
+  app.post(BACKEND_ENDPOINTS.emailReply, async (req, res) => {
     const startedAt = Date.now();
     const requestId = req.body?.clientRequestId || crypto.randomUUID();
 
@@ -177,7 +179,7 @@ export function createBackendApp(config: AppConfig) {
     }
   });
 
-  app.post("/draft-new-email", async (req, res) => {
+  app.post(BACKEND_ENDPOINTS.newEmail, async (req, res) => {
     const startedAt = Date.now();
     const requestId = req.body?.clientRequestId || crypto.randomUUID();
 
@@ -247,7 +249,7 @@ export function createBackendApp(config: AppConfig) {
     }
   });
 
-  app.post("/draft-slack-reply", async (req, res) => {
+  app.post(BACKEND_ENDPOINTS.slackReply, async (req, res) => {
     const startedAt = Date.now();
     const requestId = req.body?.clientRequestId || crypto.randomUUID();
 
@@ -312,7 +314,7 @@ export function createBackendApp(config: AppConfig) {
     }
   });
 
-  app.post("/draft-web-response", async (req, res) => {
+  app.post(BACKEND_ENDPOINTS.webResponse, async (req, res) => {
     const startedAt = Date.now();
     const requestId = req.body?.clientRequestId || crypto.randomUUID();
     const parsed = webDraftRequestSchema.safeParse(req.body);

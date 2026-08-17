@@ -7,7 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { Server } from "node:http";
-import { createBackendApp, DEFAULT_REPLY_SETTINGS, testGleanConnection, type AppConfig, type ReplySettings } from "@gmail-glean-reply-drafter/backend";
+import { createBackendApp, DEFAULT_BACKEND_PORT, DEFAULT_REPLY_SETTINGS, LOCAL_BACKEND_HOST, PINNED_EXTENSION_ID, testGleanConnection, type AppConfig, type ReplySettings } from "@gmail-glean-reply-drafter/backend";
 
 interface HelperConfig {
   port: number;
@@ -63,14 +63,12 @@ interface ExtensionFolderStatus {
 }
 
 const DEFAULT_CONFIG: HelperConfig = {
-  port: 8787,
-  gleanServerUrl: "https://scio-prod-be.glean.com",
+  port: DEFAULT_BACKEND_PORT,
+  gleanServerUrl: "",
   gleanTimeoutMs: 45000,
   replySettings: { ...DEFAULT_REPLY_SETTINGS },
   launchAtLogin: false,
 };
-const BACKEND_HOST = "127.0.0.1";
-const EXTENSION_ID = "odjbnkdimjemoifcndjpopoiifpdnlbo";
 const EXTENSION_FOLDER_NAME = "Gmail Glean Reply Extension";
 const REQUIRED_EXTENSION_FILES = ["manifest.json", "background.js", "contentScript.js", "options.html", "options.js"];
 
@@ -235,7 +233,7 @@ async function startLocalServer() {
 
   await new Promise<void>((resolve, reject) => {
     server = backend
-      .listen(currentConfig.port, BACKEND_HOST, () => resolve())
+      .listen(currentConfig.port, LOCAL_BACKEND_HOST, () => resolve())
       .on("error", (error: Error) => reject(error));
   });
 }
@@ -272,7 +270,7 @@ async function restartLocalServerSafely() {
 function toBackendConfig(config: HelperConfig, token?: string): AppConfig {
   const backendConfig: AppConfig = {
     port: config.port,
-    host: BACKEND_HOST,
+    host: LOCAL_BACKEND_HOST,
     gleanServerUrl: config.gleanServerUrl,
     gleanTimeoutMs: config.gleanTimeoutMs,
     gleanStubMode: false,
@@ -313,7 +311,7 @@ function getPublicStatus(): PublicStatus {
     hasLocalSecret: Boolean(currentConfig.encryptedLocalSecret),
     launchAtLogin: currentConfig.launchAtLogin,
     extensionPath: installableExtension.ready ? installableExtensionPath : "",
-    extensionId: EXTENSION_ID,
+    extensionId: PINNED_EXTENSION_ID,
     extensionFolderReady: installableExtension.ready,
     bundledExtensionReady: bundledExtension.ready,
     extensionFolderDetail,
@@ -478,7 +476,7 @@ function toErrorMessage(error: unknown) {
 }
 
 function getChromeExtensionDetailsUrl() {
-  return `chrome://extensions/?id=${EXTENSION_ID}`;
+  return `chrome://extensions/?id=${PINNED_EXTENSION_ID}`;
 }
 
 function getManualInstallCommand() {
@@ -495,7 +493,7 @@ function getManualInstallCommand() {
 }
 
 function getManualPairingSettings() {
-  return [`http://${BACKEND_HOST}:${currentConfig.port}`, getLocalSecret(currentConfig)].join("\n");
+  return [`http://${LOCAL_BACKEND_HOST}:${currentConfig.port}`, getLocalSecret(currentConfig)].join("\n");
 }
 
 function quoteShellArg(value: string) {

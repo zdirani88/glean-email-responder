@@ -18,6 +18,22 @@ export type OverwriteBehavior = "replace" | "append";
 export type ContextDepth = "latest" | "visibleThread";
 export type EffectiveGleanMode = "fast" | "thinking";
 
+export const LOCAL_BACKEND_HOST = "127.0.0.1";
+export const DEFAULT_BACKEND_PORT = 8787;
+export const DEFAULT_BACKEND_BASE_URL = `http://${LOCAL_BACKEND_HOST}:${DEFAULT_BACKEND_PORT}`;
+export const BACKEND_API_VERSION = 2;
+// Must match the stable ID produced by extension/manifest.json's pinned public key.
+export const PINNED_EXTENSION_ID = "odjbnkdimjemoifcndjpopoiifpdnlbo";
+export const BACKEND_ENDPOINTS = {
+  health: "/health",
+  pairingConfirmed: "/pairing-confirmed",
+  testGleanConnection: "/test-glean-connection",
+  emailReply: "/draft-email-reply",
+  newEmail: "/draft-new-email",
+  slackReply: "/draft-slack-reply",
+  webResponse: "/draft-web-response",
+} as const;
+
 export interface ReplySettings {
   replyMode: ReplyMode;
   defaultTone: ReplyTone;
