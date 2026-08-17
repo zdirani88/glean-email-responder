@@ -62,7 +62,6 @@
       .hero-title {
         align-items: start;
         display: flex;
-        justify-content: space-between;
         gap: 16px;
       }
       .progress {
@@ -81,7 +80,7 @@
       .setup-grid {
         display: grid;
         gap: 10px;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
       }
       .setup-step {
         align-items: center;
@@ -90,7 +89,7 @@
         border-radius: 10px;
         display: grid;
         gap: 8px;
-        grid-template-columns: auto 1fr auto;
+        grid-template-columns: auto 1fr;
         min-height: 48px;
         padding: 10px 12px;
       }
@@ -124,21 +123,14 @@
         background: #188038;
         color: #ffffff;
       }
-      .setup-step.warn {
-        background: #fff8e1;
-        border-color: #f6d889;
+      .setup-instructions {
+        background: #f8fafc;
+        border: 1px solid #e3e7ee;
+        border-radius: 10px;
+        padding: 14px 18px 14px 38px;
       }
-      .setup-step.warn .badge {
-        background: #f9ab00;
+      .setup-instructions strong {
         color: #202124;
-      }
-      .mini-button {
-        background: #ffffff;
-        box-shadow: inset 0 0 0 1px #dfe3ea;
-        color: #202124;
-        font-size: 12px;
-        min-height: 32px;
-        padding: 0 10px;
       }
       .dot {
         border-radius: 999px;
@@ -250,17 +242,6 @@
         background: #fce8e6;
         color: #b3261e;
       }
-      .manual-command {
-        background: #f6f8fb;
-        border: 1px solid #dfe3ea;
-        border-radius: 6px;
-        font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        margin: 10px 0;
-        overflow-x: auto;
-        padding: 10px;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
       .split {
         display: grid;
         gap: 18px;
@@ -288,38 +269,30 @@
       <section class="hero">
         <div class="hero-title">
           <div>
-            <h2>Readiness</h2>
+            <h2>Ready to draft?</h2>
             <div class="status" style="margin-top: 6px">
               <span id="statusDot" class="dot off"></span>
               <strong id="statusText">Checking helper...</strong>
               <span id="tokenState" class="hint"></span>
             </div>
           </div>
-          <button id="refreshStatus" type="button" class="secondary">Refresh status</button>
         </div>
         <div class="progress" aria-hidden="true"><span id="setupProgress"></span></div>
         <div class="setup-grid">
           <div id="stepToken" class="setup-step">
             <span class="badge">1</span>
-            <span><strong>Connect Glean</strong><small>Save and test your Client API token.</small></span>
-            <button id="jumpConnect" type="button" class="mini-button">Open</button>
+            <span><strong>Glean connected</strong><small id="stepTokenDetail">Add your server and token below.</small></span>
           </div>
           <div id="stepServer" class="setup-step">
             <span class="badge">2</span>
-            <span><strong>Start helper</strong><small>Local backend running on this Mac.</small></span>
-            <button id="quickRestart" type="button" class="mini-button">Start</button>
+            <span><strong>Helper running</strong><small id="stepServerDetail">Starting the local helper.</small></span>
           </div>
           <div id="stepExtension" class="setup-step">
             <span class="badge">3</span>
-            <span><strong>Install / refresh extension</strong><small>Copy and verify the current browser extension.</small></span>
-            <button id="quickRefreshExtension" type="button" class="mini-button">Install</button>
-          </div>
-          <div id="stepPair" class="setup-step">
-            <span class="badge">4</span>
-            <span><strong>Pair extension</strong><small>Confirm Chrome saved the helper secret.</small></span>
-            <button id="quickPair" type="button" class="mini-button">Pair</button>
+            <span><strong>Chrome connected</strong><small id="stepExtensionDetail">Complete the Chrome steps below.</small></span>
           </div>
         </div>
+        <p id="readinessSummary" class="hint">Checking setup…</p>
       </section>
 
       <section id="connectSection" class="form">
@@ -411,30 +384,30 @@
       </section>
 
       <section>
-        <h2>Browser extension</h2>
-        <p>Install the bundled extension, pair it once, then press <code>Cmd+Shift+Y</code> from any regular web page. Focus a reply field first to insert the draft automatically.</p>
+        <h2>Set up the Chrome extension</h2>
+        <p>Chrome requires you to approve locally installed extensions. Follow these steps once; this helper will automatically confirm the extension version after Chrome reloads it.</p>
+        <ol class="setup-instructions" style="margin-top: 14px">
+          <li><strong>Prepare the files.</strong> Click <strong>Prepare extension files</strong>. Finder will show the exact folder to use.</li>
+          <li><strong>Open Chrome’s extension page.</strong> In Chrome’s address bar, type <code>chrome://extensions</code> and press Return. Turn on <strong>Developer mode</strong>.</li>
+          <li><strong>Install or update.</strong> For a first install, click <strong>Load unpacked</strong> and select the folder Finder opened. If Glean Response Assistant is already listed, click its circular <strong>Reload</strong> icon.</li>
+          <li><strong>Connect the extension.</strong> Open its <strong>Details</strong>, then <strong>Extension options</strong>. Click <strong>Copy pairing values</strong> below; paste the first line as the backend URL and the second as the shared secret, then click <strong>Save</strong>.</li>
+        </ol>
         <div class="row" style="margin-top: 14px">
-          <button id="openExtensionFolder" type="button">Install / refresh</button>
-          <button id="pairExtension" type="button">Pair extension</button>
-          <button id="openShortcuts" type="button" class="secondary">Shortcut settings</button>
+          <button id="openExtensionFolder" type="button">Prepare extension files</button>
+          <button id="copyManualPairingSettings" type="button" class="secondary">Copy pairing values</button>
         </div>
-        <p class="hint" style="margin-top: 12px">Version <code id="bundledExtensionVersion">Checking...</code>, installed <code id="extensionVersion">Checking...</code>, Chrome confirmed <code id="pairedExtensionVersion">Not verified yet</code></p>
+        <div id="extensionMessage" class="message neutral" style="margin-top: 12px">Start with “Prepare extension files,” then follow the four steps above.</div>
+        <p class="hint" style="margin-top: 12px">Folder: <code id="extensionPath">Not prepared yet</code></p>
+        <p id="extensionConnectionDetail" class="hint" style="margin-top: 8px">Checking Chrome connection…</p>
+        <p class="hint" style="margin-top: 8px">When setup is complete, focus a reply field on Gmail, Slack, LinkedIn, or another web page and press <code>Cmd+Shift+Y</code>. To change the shortcut, type <code>chrome://extensions/shortcuts</code> in Chrome.</p>
         <details style="margin-top: 14px">
-          <summary><strong>Advanced setup and troubleshooting</strong></summary>
-          <p class="hint" style="margin-top: 12px">Install folder: <code id="extensionPath">Checking...</code></p>
+          <summary><strong>Troubleshooting</strong></summary>
           <p class="hint" style="margin-top: 8px">Extension ID: <code id="extensionId">Checking...</code></p>
           <div class="row" style="margin-top: 12px">
-            <button id="openExtensions" type="button" class="secondary">Open extensions</button>
             <button id="restart" type="button" class="secondary">Restart helper</button>
             <button id="clearToken" type="button" class="secondary">Clear token</button>
             <button id="rotateSecret" type="button" class="secondary">Reset pairing</button>
           </div>
-          <pre id="manualInstallCommand" class="manual-command">Preparing manual install command...</pre>
-          <div class="row">
-            <button id="copyManualInstallCommand" type="button" class="secondary">Copy install command</button>
-            <button id="copyManualPairingSettings" type="button" class="secondary">Copy pairing values</button>
-          </div>
-          <pre id="manualPairingSettings" class="manual-command">Preparing pairing values...</pre>
         </details>
       </section>
     </main>

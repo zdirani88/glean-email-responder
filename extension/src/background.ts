@@ -12,7 +12,14 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (!existing.backendBaseUrl) {
     await chrome.storage.local.set(DEFAULT_CONFIG);
   }
+  await confirmHelperPairing();
 });
+
+chrome.runtime.onStartup.addListener(() => {
+  void confirmHelperPairing();
+});
+
+void confirmHelperPairing();
 
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command !== "draft-reply" || !tab?.id || !isSupportedDraftUrl(tab.url)) {
@@ -107,13 +114,40 @@ async function getConfig(): Promise<ExtensionConfig> {
   return config;
 }
 
+async function confirmHelperPairing() {
+  const config = await getConfig();
+  if (!config.backendSecret) return;
+
+  try {
+    const baseUrl = config.backendBaseUrl.replace(/\/$/, "");
+    const response = await fetch(`${baseUrl}${BACKEND_ENDPOINTS.pairingConfirmed}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-backend-secret": config.backendSecret,
+      },
+      body: JSON.stringify({
+        source: "extension-background",
+        extensionVersion: chrome.runtime.getManifest().version,
+      }),
+    });
+    if (!response.ok) {
+      console.info("helper_pairing_confirmation_rejected", { status: response.status });
+    }
+  } catch (error) {
+    console.info("helper_pairing_confirmation_unavailable", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function toFriendlyBackendError(error: string, status: number) {
   const text = error.toLowerCase();
   if (status === 429) return "Too many requests: Wait about a minute, then try again. If this keeps happening, close extra Gmail tabs using the extension.";
   if (text.includes("timed out") || text.includes("timeout")) return "Glean took too long: Open Glean Response Helper, increase Timeout, then try again. Scheduling and calendar checks can take longer.";
   if (text.includes("glean token") || text.includes("token problem") || text.includes("please authenticate") || text.includes("glean chat 401") || text.includes("glean chat 403")) return "Glean token problem: Open Glean Response Helper, paste a fresh Client API token with CHAT and SEARCH scopes. Click Save, then Test Glean.";
-  if (text.includes("not paired") || text.includes("pair extension") || text.includes("backend secret") || text.includes("extension is not paired")) return "Pairing needed: Open Glean Response Helper, install or refresh the extension, click Pair extension, then reload the page.";
-  if (status === 401) return "Authentication problem: Open Glean Response Helper and click Test Glean. If it passes, click Pair extension. If it fails, replace your token.";
+  if (text.includes("not paired") || text.includes("pair extension") || text.includes("backend secret") || text.includes("extension is not paired")) return "Chrome setup needed: Open Glean Response Helper, follow the four extension setup steps, then reload this page.";
+  if (status === 401) return "Authentication problem: Open Glean Response Helper and click Test Glean. If it passes, reconnect Chrome using the extension setup steps. If it fails, replace your token.";
   if (status === 403 || text.includes("forbidden")) return "Access problem: Check your Glean token scopes and helper setup. For calendar drafts, confirm a calendar/free-busy action is enabled in Glean.";
   if (text.includes("bad request") || text.includes("400")) return "Glean rejected the request: Try a shorter instruction, or switch Response mode to Auto in Glean Response Helper.";
   if (text.includes("empty draft") || text.includes("no draft returned")) return "Glean did not return a final draft: Try again with a clearer instruction. For calendar requests, confirm your Glean tenant has a calendar/free-busy action enabled.";

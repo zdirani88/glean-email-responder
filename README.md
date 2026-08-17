@@ -106,14 +106,14 @@ The helper app:
 - Binds the backend to `127.0.0.1` and requires a generated local extension pairing secret
 - Stores the Glean Client API token with Electron secure storage
 - Tests the Glean token before use
-- Bundles the built Chrome extension, copies it to a writable install folder, and verifies the copied manifest version before opening Chrome setup
-- Opens a one-click pairing link so the extension can save the backend URL and local secret automatically
-- Records the extension version reported by Chrome during pairing, so an old loaded copy is visible in the helper status
+- Bundles the built Chrome extension, copies it to a writable install folder, and opens that folder in Finder
+- Shows a four-step Chrome installation and pairing guide with copyable pairing values
+- Records the version reported automatically by the running Chrome extension, so readiness reflects Chrome rather than the copied folder
 - Lets the user clear the Glean token or rotate the local extension pairing secret
 - Can start at login
 - Shows Chrome extension setup steps
 
-If macOS blocks the helper's Finder or Chrome launch, use the **Manual steps to set up** section in the helper. Its Terminal command is generated from the app's actual embedded extension path and the current user's writable folders. Run it, then open `chrome://extensions`, enable Developer mode, and load or reload the copied `Gmail Glean Reply Extension` folder. For pairing, open the extension's Options page and paste the Backend URL and Backend shared secret into the matching fields. Chrome does not allow a desktop app to silently approve Load unpacked, so that Chrome step is intentionally manual.
+Click **Prepare extension files** in the helper, then open `chrome://extensions` manually in Chrome. Enable Developer mode and load or reload the copied `Gmail Glean Reply Extension` folder shown by Finder. Open the extension's Options page, click **Copy pairing values** in the helper, and paste the Backend URL and Backend shared secret into the matching fields. Chrome does not allow a desktop app to silently approve Load unpacked, so those Chrome steps are intentionally manual.
 
 ### Glean Token Setup For Users
 

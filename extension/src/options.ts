@@ -70,13 +70,13 @@ async function confirmPairing(config: ExtensionConfig) {
     });
 
     if (!res.ok) {
-      if (statusEl) statusEl.textContent = "Saved locally, but helper rejected the pairing. Open Glean Response Helper and click Pair extension again.";
+      if (statusEl) statusEl.textContent = "Saved locally, but the helper rejected the pairing. Copy fresh pairing values from Glean Response Helper and save them here again.";
       return;
     }
 
     if (statusEl) statusEl.textContent = "Paired with Glean Response Helper. Reload the page before drafting.";
   } catch {
-    if (statusEl) statusEl.textContent = "Saved locally, but could not reach helper to confirm pairing. Start Glean Response Helper, then click Pair extension again.";
+    if (statusEl) statusEl.textContent = "Saved locally, but could not reach the helper. Start Glean Response Helper, then save these values again.";
   }
 }
 

@@ -25,23 +25,14 @@ interface HelperStatus {
   extensionPath: string;
   extensionId: string;
   extensionPairedAt?: string;
-  extensionFolderReady: boolean;
-  bundledExtensionReady: boolean;
-  extensionFolderDetail: string;
-  bundledExtensionDetail: string;
-  extensionManifestVersion?: string;
   bundledExtensionManifestVersion?: string;
-  extensionVersionMatches: boolean;
   extensionPairedVersion?: string;
-  manualInstallCommand: string;
-  manualPairingSettings: string;
   serverError?: string;
 }
 
 interface ExtensionActionResult {
   extensionPath: string;
   extensionVersion: string;
-  manualInstallCommand: string;
   warnings: string[];
 }
 
@@ -50,10 +41,7 @@ interface HelperApi {
   saveConfig(input: { gleanServerUrl: string; token?: string; launchAtLogin: boolean; gleanTimeoutMs: number; replySettings: ReplySettings }): Promise<HelperStatus>;
   testGlean(input: { gleanServerUrl: string; token?: string }): Promise<{ ok: true; tokenExpiresAt?: string; tokenScopeHint?: { hasChat: boolean; hasSearch: boolean; hasCalendar: boolean } }>;
   restartServer(): Promise<HelperStatus>;
-  openUrl(url: string): Promise<void>;
   openExtensionFolder(): Promise<ExtensionActionResult>;
-  pairExtension(): Promise<ExtensionActionResult>;
-  copyManualInstallCommand(): Promise<string>;
   copyManualPairingSettings(): Promise<string>;
   clearGleanToken(): Promise<HelperStatus>;
   rotateLocalSecret(): Promise<HelperStatus>;
@@ -76,59 +64,31 @@ const contextDepth = document.querySelector<HTMLSelectElement>("#contextDepth");
 const gleanTimeoutMs = document.querySelector<HTMLSelectElement>("#gleanTimeoutMs");
 const writingPreferences = document.querySelector<HTMLTextAreaElement>("#writingPreferences");
 const statusDot = document.querySelector<HTMLElement>("#statusDot");
-const refreshStatusButton = document.querySelector<HTMLButtonElement>("#refreshStatus");
-const jumpConnectButton = document.querySelector<HTMLButtonElement>("#jumpConnect");
-const quickRestartButton = document.querySelector<HTMLButtonElement>("#quickRestart");
-const quickRefreshExtensionButton = document.querySelector<HTMLButtonElement>("#quickRefreshExtension");
-const quickPairButton = document.querySelector<HTMLButtonElement>("#quickPair");
 const setupProgress = document.querySelector<HTMLElement>("#setupProgress");
 const stepToken = document.querySelector<HTMLElement>("#stepToken");
 const stepServer = document.querySelector<HTMLElement>("#stepServer");
 const stepExtension = document.querySelector<HTMLElement>("#stepExtension");
-const stepPair = document.querySelector<HTMLElement>("#stepPair");
-const connectSection = document.querySelector<HTMLElement>("#connectSection");
+const stepTokenDetail = document.querySelector<HTMLElement>("#stepTokenDetail");
+const stepServerDetail = document.querySelector<HTMLElement>("#stepServerDetail");
+const stepExtensionDetail = document.querySelector<HTMLElement>("#stepExtensionDetail");
+const readinessSummary = document.querySelector<HTMLElement>("#readinessSummary");
 const statusText = document.querySelector<HTMLElement>("#statusText");
 const tokenState = document.querySelector<HTMLElement>("#tokenState");
 const saveButton = document.querySelector<HTMLButtonElement>("#save");
 const testButton = document.querySelector<HTMLButtonElement>("#test");
 const restartButton = document.querySelector<HTMLButtonElement>("#restart");
-const openExtensionsButton = document.querySelector<HTMLButtonElement>("#openExtensions");
-const openShortcutsButton = document.querySelector<HTMLButtonElement>("#openShortcuts");
 const openExtensionFolderButton = document.querySelector<HTMLButtonElement>("#openExtensionFolder");
-const pairExtensionButton = document.querySelector<HTMLButtonElement>("#pairExtension");
-const copyManualInstallCommandButton = document.querySelector<HTMLButtonElement>("#copyManualInstallCommand");
 const copyManualPairingSettingsButton = document.querySelector<HTMLButtonElement>("#copyManualPairingSettings");
 const clearTokenButton = document.querySelector<HTMLButtonElement>("#clearToken");
 const rotateSecretButton = document.querySelector<HTMLButtonElement>("#rotateSecret");
 const extensionPath = document.querySelector<HTMLElement>("#extensionPath");
 const extensionId = document.querySelector<HTMLElement>("#extensionId");
-const extensionVersion = document.querySelector<HTMLElement>("#extensionVersion");
-const bundledExtensionVersion = document.querySelector<HTMLElement>("#bundledExtensionVersion");
-const pairedExtensionVersion = document.querySelector<HTMLElement>("#pairedExtensionVersion");
+const extensionConnectionDetail = document.querySelector<HTMLElement>("#extensionConnectionDetail");
+const extensionMessage = document.querySelector<HTMLElement>("#extensionMessage");
 const message = document.querySelector<HTMLElement>("#message");
 
 void refreshStatus();
-
-refreshStatusButton?.addEventListener("click", () => {
-  void refreshStatus();
-});
-
-jumpConnectButton?.addEventListener("click", () => {
-  connectSection?.scrollIntoView({ behavior: "smooth", block: "start" });
-  serverUrl?.focus();
-});
-
-quickRestartButton?.addEventListener("click", () => {
-  restartButton?.click();
-});
-
-quickRefreshExtensionButton?.addEventListener("click", () => {
-  void installExtension();
-});
-
-quickPairButton?.addEventListener("click", () => {
-  pairExtensionButton?.click();
-});
+window.setInterval(() => void refreshStatus(true), 3000);
 
 saveButton?.addEventListener("click", async () => {
   await runAction("Settings saved. Local server restarted.", async () => {
@@ -163,32 +123,12 @@ restartButton?.addEventListener("click", async () => {
   });
 });
 
-openExtensionsButton?.addEventListener("click", async () => {
-  await runAction("Chrome extensions opened.", async () => {
-    await window.gmailGleanHelper.openUrl("chrome://extensions");
-  });
-});
-
 openExtensionFolderButton?.addEventListener("click", () => {
   void installExtension();
 });
 
-pairExtensionButton?.addEventListener("click", async () => {
-  await runAction(undefined, async () => {
-    const result = await window.gmailGleanHelper.pairExtension();
-    renderStatus(await window.gmailGleanHelper.getStatus());
-    setMessage(formatPairingSuccess(result), "neutral");
-  });
-});
-
-copyManualInstallCommandButton?.addEventListener("click", async () => {
-  await runAction("Manual install command copied. Paste it into Terminal.", async () => {
-    await window.gmailGleanHelper.copyManualInstallCommand();
-  });
-});
-
 copyManualPairingSettingsButton?.addEventListener("click", async () => {
-  await runAction("Manual pairing values copied. Paste them into the extension options page.", async () => {
+  await runExtensionAction("Pairing values copied. In Chrome’s Extension options, paste the first line as the backend URL and the second as the shared secret, then click Save.", async () => {
     await window.gmailGleanHelper.copyManualPairingSettings();
   });
 });
@@ -200,43 +140,39 @@ clearTokenButton?.addEventListener("click", async () => {
 });
 
 rotateSecretButton?.addEventListener("click", async () => {
-  await runAction("Local pairing secret rotated. Pair the Chrome extension again.", async () => {
+  await runAction("Local pairing secret rotated. Copy the new pairing values into Chrome’s Extension options.", async () => {
     renderStatus(await window.gmailGleanHelper.rotateLocalSecret());
   });
 });
 
-openShortcutsButton?.addEventListener("click", async () => {
-  await runAction("Chrome shortcuts opened.", async () => {
-    await window.gmailGleanHelper.openUrl("chrome://extensions/shortcuts");
-  });
-});
-
 async function installExtension() {
-  await runAction(undefined, async () => {
+  await runExtensionAction(undefined, async () => {
     const result = await window.gmailGleanHelper.openExtensionFolder();
     renderStatus(await window.gmailGleanHelper.getStatus());
-    setMessage(formatExtensionCopySuccess(result), result.warnings.length ? "neutral" : "success");
+    setExtensionMessage(formatExtensionCopySuccess(result), result.warnings.length ? "neutral" : "success");
   });
 }
 
-async function refreshStatus() {
+async function refreshStatus(preserveInputs = false) {
   try {
-    renderStatus(await window.gmailGleanHelper.getStatus());
+    renderStatus(await window.gmailGleanHelper.getStatus(), preserveInputs);
   } catch (error) {
     setMessage(toFriendlyError(error), "error");
   }
 }
 
-function renderStatus(status: HelperStatus) {
-  if (serverUrl) serverUrl.value = status.gleanServerUrl;
-  if (launchAtLogin) launchAtLogin.checked = status.launchAtLogin;
-  if (replyMode) replyMode.value = status.replySettings.replyMode;
-  if (defaultTone) defaultTone.value = status.replySettings.defaultTone;
-  if (defaultLength) defaultLength.value = status.replySettings.defaultLength;
-  if (overwriteBehavior) overwriteBehavior.value = status.replySettings.overwriteBehavior;
-  if (contextDepth) contextDepth.value = status.replySettings.contextDepth;
-  if (gleanTimeoutMs) gleanTimeoutMs.value = String(status.gleanTimeoutMs);
-  if (writingPreferences) writingPreferences.value = status.replySettings.writingPreferences;
+function renderStatus(status: HelperStatus, preserveInputs = false) {
+  if (!preserveInputs) {
+    if (serverUrl) serverUrl.value = status.gleanServerUrl;
+    if (launchAtLogin) launchAtLogin.checked = status.launchAtLogin;
+    if (replyMode) replyMode.value = status.replySettings.replyMode;
+    if (defaultTone) defaultTone.value = status.replySettings.defaultTone;
+    if (defaultLength) defaultLength.value = status.replySettings.defaultLength;
+    if (overwriteBehavior) overwriteBehavior.value = status.replySettings.overwriteBehavior;
+    if (contextDepth) contextDepth.value = status.replySettings.contextDepth;
+    if (gleanTimeoutMs) gleanTimeoutMs.value = String(status.gleanTimeoutMs);
+    if (writingPreferences) writingPreferences.value = status.replySettings.writingPreferences;
+  }
   if (statusDot) statusDot.className = status.running ? "dot on" : "dot off";
   if (statusText) {
     statusText.textContent = status.running
@@ -246,42 +182,50 @@ function renderStatus(status: HelperStatus) {
         : "Stopped";
   }
   if (tokenState) tokenState.textContent = status.hasToken ? "Token saved securely" : "Token not set";
-  if (extensionPath) extensionPath.textContent = status.extensionPath || "Not installed yet";
+  if (extensionPath) extensionPath.textContent = status.extensionPath || "Not prepared yet";
   if (extensionId) extensionId.textContent = status.extensionId;
-  if (extensionVersion) extensionVersion.textContent = status.extensionManifestVersion || "Not copied yet";
-  if (bundledExtensionVersion) bundledExtensionVersion.textContent = status.bundledExtensionManifestVersion || "Unavailable";
-  if (pairedExtensionVersion) pairedExtensionVersion.textContent = status.extensionPairedVersion || "Not verified yet";
-  const manualInstallCommand = document.querySelector<HTMLElement>("#manualInstallCommand");
-  if (manualInstallCommand) manualInstallCommand.textContent = status.manualInstallCommand;
-  const manualPairingSettings = document.querySelector<HTMLElement>("#manualPairingSettings");
-  if (manualPairingSettings) manualPairingSettings.textContent = status.manualPairingSettings;
   renderSetup(status);
 }
 
 function renderSetup(status: HelperStatus) {
   const tokenReady = status.hasToken;
   const serverReady = status.running;
-  const pairReady = Boolean(
+  const extensionReady = Boolean(
     status.hasLocalSecret &&
       status.extensionPairedAt &&
       status.extensionPairedVersion &&
       status.extensionPairedVersion === status.bundledExtensionManifestVersion,
   );
-  const extensionReady = status.bundledExtensionReady && status.extensionFolderReady && status.extensionVersionMatches;
-  const completed = [tokenReady, serverReady, extensionReady, pairReady].filter(Boolean).length;
-  if (setupProgress) setupProgress.style.width = `${Math.round((completed / 4) * 100)}%`;
+  const completed = [tokenReady, serverReady, extensionReady].filter(Boolean).length;
+  if (setupProgress) setupProgress.style.width = `${Math.round((completed / 3) * 100)}%`;
 
   setStep(stepToken, tokenReady, "1");
   setStep(stepServer, serverReady, "2");
-  setStep(stepExtension, extensionReady, "3", status.bundledExtensionReady);
-  setStep(stepPair, pairReady, "4");
-
+  setStep(stepExtension, extensionReady, "3");
+  if (stepTokenDetail) stepTokenDetail.textContent = tokenReady ? "Client API token saved." : "Add your server and token below.";
+  if (stepServerDetail) stepServerDetail.textContent = serverReady ? `Running on this Mac at port ${status.port}.` : "Restart the helper under Troubleshooting.";
+  if (stepExtensionDetail) {
+    stepExtensionDetail.textContent = extensionReady
+      ? `Chrome confirmed version ${status.extensionPairedVersion}.`
+      : status.extensionPairedVersion
+        ? `Last confirmed ${status.extensionPairedVersion}; reload Chrome to verify ${status.bundledExtensionManifestVersion || "the current version"}.`
+        : "Complete the Chrome steps below.";
+  }
+  if (extensionConnectionDetail) {
+    extensionConnectionDetail.textContent = extensionReady
+      ? `Chrome is connected and running extension version ${status.extensionPairedVersion}.`
+      : `Current extension version ${status.bundledExtensionManifestVersion || "unavailable"}; Chrome confirmation ${status.extensionPairedVersion || "not received yet"}.`;
+  }
+  if (readinessSummary) {
+    readinessSummary.textContent = completed === 3
+      ? "Setup complete. You can draft from Gmail, Slack, LinkedIn, and other web pages."
+      : "Finish the incomplete items below. Status updates automatically after Chrome reloads the extension.";
+  }
 }
 
-function setStep(element: HTMLElement | null, done: boolean, fallbackLabel: string, available = true) {
+function setStep(element: HTMLElement | null, done: boolean, fallbackLabel: string) {
   if (!element) return;
   element.classList.toggle("done", done);
-  element.classList.toggle("warn", !available);
   const badge = element.querySelector<HTMLElement>(".badge");
   if (badge) badge.textContent = done ? "✓" : fallbackLabel;
 }
@@ -295,6 +239,20 @@ async function runAction(successText: string | undefined, action: () => Promise<
     if (successText) setMessage(successText, "success");
   } catch (error) {
     setMessage(toFriendlyError(error), "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function runExtensionAction(successText: string | undefined, action: () => Promise<void>) {
+  setBusy(true);
+  setExtensionMessage("Working…", "neutral");
+
+  try {
+    await action();
+    if (successText) setExtensionMessage(successText, "success");
+  } catch (error) {
+    setExtensionMessage(toFriendlyError(error), "error");
   } finally {
     setBusy(false);
   }
@@ -326,12 +284,7 @@ function formatScopeHint(scopeHint: { hasChat: boolean; hasSearch: boolean; hasC
 }
 
 function formatExtensionCopySuccess(result: ExtensionActionResult) {
-  const base = `Extension version ${result.extensionVersion} was copied and verified at ${result.extensionPath}. In Chrome, click Load unpacked for the first install or click Reload for an existing install. A manual Terminal command is available below if needed.`;
-  return appendWarnings(base, result.warnings);
-}
-
-function formatPairingSuccess(result: ExtensionActionResult) {
-  const base = `Pairing values copied for extension version ${result.extensionVersion}. Chrome's extension details page is open. Click Extension options, paste the two copied lines into Backend base URL and Backend shared secret, then click Save.`;
+  const base = `Extension version ${result.extensionVersion} is ready. Finder opened the folder and its location was copied. In Chrome, use Load unpacked for the first install or Reload for an existing install.`;
   return appendWarnings(base, result.warnings);
 }
 
@@ -361,15 +314,9 @@ function setBusy(busy: boolean) {
     testButton,
     restartButton,
     openExtensionFolderButton,
-    pairExtensionButton,
-    copyManualInstallCommandButton,
     copyManualPairingSettingsButton,
     clearTokenButton,
     rotateSecretButton,
-    refreshStatusButton,
-    quickRestartButton,
-    quickRefreshExtensionButton,
-    quickPairButton,
   ].forEach((button) => {
     if (button) button.disabled = busy;
   });
@@ -381,6 +328,12 @@ function setMessage(text: string, tone: "neutral" | "success" | "error") {
   message.className = `message ${tone}`;
 }
 
+function setExtensionMessage(text: string, tone: "neutral" | "success" | "error") {
+  if (!extensionMessage) return;
+  extensionMessage.textContent = text;
+  extensionMessage.className = `message ${tone}`;
+}
+
 function toFriendlyError(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || "Something went wrong.");
   const text = raw.toLowerCase();
@@ -388,7 +341,7 @@ function toFriendlyError(error: unknown) {
     return "Glean token problem: paste a fresh Client API token with CHAT and SEARCH scopes. For scheduling, your Glean tenant also needs a calendar/free-busy action enabled. Then click Save and Test Glean.";
   }
   if (text.includes("not paired") || text.includes("pair extension") || text.includes("extension is not paired") || text.includes("pairing problem")) {
-    return "Pairing problem: click Pair extension, then reload Gmail and try again.";
+    return "Chrome is not connected yet. Follow the four extension setup steps, save the pairing values in Extension options, then reload the extension.";
   }
   if (text.includes("fetch failed") || text.includes("econnrefused") || text.includes("could not reach")) {
     return "Helper connection problem: click Restart helper. If that does not work, quit and reopen Glean Response Helper.";
@@ -397,13 +350,13 @@ function toFriendlyError(error: unknown) {
     return "Access problem: check your Glean token scopes. For scheduling, confirm a calendar/free-busy action is enabled in Glean. Then click Save and Test Glean.";
   }
   if (text.includes("401")) {
-    return "Authentication problem: click Test Glean. If it fails, replace your Glean token. If it passes, click Pair extension.";
+    return "Authentication problem: click Test Glean. If it fails, replace your Glean token. If it passes, reconnect the Chrome extension using the setup steps.";
   }
   if (text.includes("timed out") || text.includes("timeout")) {
     return "Glean took too long: increase Timeout in Reply settings, then try again.";
   }
   if (text.includes("extension folder") || text.includes("bundled extension")) {
-    return "Extension copy problem: click Refresh extension copy again. If it still fails, reinstall the latest helper app.";
+    return "Extension file problem: click Prepare extension files again. If it still fails, reinstall the latest helper app.";
   }
   return raw;
 }
