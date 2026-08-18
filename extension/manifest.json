@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Glean Response Assistant",
   "description": "Draft responses from visible web context using a local Glean integration.",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAsk+SFN85kCTSC9zYWZsKdctc69CfLW8Ow1m3+GayE11ld+tLr3Y0aSphxXm/56Pr24FCEuotipS6T4zppvF5YY4ZgioPGwEjQqy2ACG3iNFEaCDRsC6jANkP7AUMe/nKmsA1Br0ATFLVi7eLrzbMLCszPQX1PLybcUDTAEy3R4B3H3ZvF/srKv4dwecxNt0geIYMbBNp2p8ycZTMIgtk+dEsrk/EjndA/Au0O1AJI07xM5mZRfmcnsk36QpA4ZlJcaDCTfsjPI4f7LPmejcZNqtQeBV9GaEN1+G4lfg8Brze/ZK0U3lyhE9CfzX8JHwegVBlRF29HfY6JTpIXFO2fQIDAQAB",
   "permissions": [
     "activeTab",

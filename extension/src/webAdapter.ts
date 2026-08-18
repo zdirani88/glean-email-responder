@@ -31,6 +31,17 @@ export function isWebComposerUsable(composer: WebComposerTarget) {
   return composer.editor.isConnected && composer.root.isConnected && isUsableEditor(composer.editor) && isVisibleEditor(composer.editor);
 }
 
+export function getWebConversationKey(composer: WebComposerTarget | undefined, context: WebDraftRequestPayload) {
+  const pageUrl = normalizeConversationUrl(context.pageUrl);
+  const domIdentity = composer ? findConversationIdentity(composer) : undefined;
+  if (domIdentity) return `${pageUrl}|${domIdentity}`;
+
+  const composerText = normalizeText(context.activeFieldText);
+  const contextWithoutDraft = composerText ? normalizeText(normalizeText(context.nearbyText).replace(composerText, "")) : context.nearbyText;
+  const signatureSource = [context.pageTitle, contextWithoutDraft || context.pageText].join("|").slice(0, 16_000);
+  return `${pageUrl}|context:${hashText(signatureSource)}`;
+}
+
 export function extractWebContext(options: WebExtractionOptions = {}): WebDraftRequestPayload {
   const composer = options.composer;
   const selection = normalizeText(window.getSelection()?.toString() ?? "").slice(0, MAX_SELECTED_TEXT);
@@ -184,6 +195,40 @@ function findContextRoot(editor: HTMLElement) {
     candidate = candidate.parentElement;
   }
   return document.querySelector<HTMLElement>("main, [role='main']") ?? document.body;
+}
+
+function findConversationIdentity(composer: WebComposerTarget) {
+  const attributeNames = ["data-conversation-urn", "data-thread-urn", "data-entity-urn", "data-urn", "data-id"];
+  let element: HTMLElement | null = composer.editor;
+  for (let depth = 0; element && depth < 10; depth += 1, element = element.parentElement) {
+    for (const attribute of attributeNames) {
+      const value = element.getAttribute(attribute)?.trim();
+      if (value && /(conversation|thread|message|inmail)/i.test(`${attribute}:${value}`)) return `${attribute}:${value}`;
+    }
+    if (element.id && /(conversation|thread|message|inmail)/i.test(element.id)) return `id:${element.id}`;
+  }
+
+  const threadLink = composer.root.querySelector<HTMLAnchorElement>('a[href*="/messaging/thread/"], a[href*="/inmail/"]');
+  return threadLink?.href ? `link:${normalizeConversationUrl(threadLink.href)}` : undefined;
+}
+
+function normalizeConversationUrl(value: string) {
+  try {
+    const url = new URL(value, location.href);
+    url.hash = "";
+    return `${url.origin}${url.pathname}${url.search}`;
+  } catch {
+    return value.split("#", 1)[0] ?? value;
+  }
+}
+
+function hashText(value: string) {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function extractNearbyText(composer: WebComposerTarget) {

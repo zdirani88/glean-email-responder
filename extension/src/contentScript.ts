@@ -17,6 +17,7 @@ import {
 import {
   extractWebContext,
   findActiveWebComposer,
+  getWebConversationKey,
   getWebComposerDraftText,
   insertWebDraft,
   isWebComposerUsable,
@@ -27,6 +28,7 @@ type DraftSurface = "gmail" | "slack" | "web";
 
 let lastComposer: ComposerTarget | undefined;
 let pendingWebContext: WebDraftRequestPayload | undefined;
+let activeWebConversationKey: string | undefined;
 let draftRequestSequence = 0;
 let lastPanelOpenAt = 0;
 
@@ -49,6 +51,16 @@ chrome.runtime.onMessage.addListener((message: ContentMessage) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    const panel = document.querySelector<HTMLElement>(".ggd-inline-ui.floating:not(.hidden)");
+    if (panel && event.target instanceof Node && panel.contains(event.target)) {
+      event.preventDefault();
+      event.stopPropagation();
+      panel.classList.add("hidden");
+      return;
+    }
+  }
+
   const shortcutPressed =
     (event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "y";
 
@@ -107,13 +119,20 @@ async function openDraftPanel() {
 }
 
 function openWebDraftPanel() {
-  draftRequestSequence += 1;
-  const composer = findActiveWebComposer();
+  const discoveredComposer = findActiveWebComposer();
+  const composer = discoveredComposer ?? (lastComposer && isWebComposerUsable(lastComposer) ? lastComposer : undefined);
   lastComposer = composer;
   pendingWebContext = extractWebContext({ composer });
+  const conversationKey = getWebConversationKey(composer, pendingWebContext);
+  const sameConversation = conversationKey === activeWebConversationKey;
   const ui = renderUi(composer);
-  ui.reset();
-  ui.setReady(composer ? "Page context ready. Add guidance, then draft." : "Page context ready. The result will be available to copy.");
+  if (sameConversation) {
+    ui.rebindComposer(composer);
+  } else {
+    activeWebConversationKey = conversationKey;
+    ui.reset();
+    ui.setReady(composer ? "Page context ready. Add guidance, then draft." : "Page context ready. The result will be available to copy.");
+  }
   ui.setPlaceholder("What response should Glean draft?");
   ui.focusInstruction();
 }
@@ -369,6 +388,7 @@ async function draftWebResponse(instructionOverride = "") {
 
 function renderUi(composer: ComposerTarget | undefined) {
   const floating = isSlackSurface() || !isGmailSurface();
+  const webSurface = !isGmailSurface() && !isSlackSurface();
   const root = floating ? document.body : composer?.root ?? document.body;
   let el = root.querySelector<GgdUiElement>(".ggd-inline-ui");
 
@@ -385,7 +405,7 @@ function renderUi(composer: ComposerTarget | undefined) {
           box-shadow: 0 10px 28px rgba(32, 33, 36, 0.12), 0 1px 2px rgba(32, 33, 36, 0.10);
           color: #202124;
           display: grid;
-          grid-template-columns: auto minmax(260px, 1fr) auto auto auto;
+          grid-template-columns: auto minmax(240px, 1fr) auto auto auto auto;
           font: 13px/1.35 Arial, sans-serif;
           gap: 10px;
           margin: 10px 0;
@@ -493,6 +513,12 @@ function renderUi(composer: ComposerTarget | undefined) {
         }
         .ggd-inline-ui button.secondary:hover {
           background: #edf1f7;
+        }
+        .ggd-inline-ui .start-over {
+          display: none;
+        }
+        .ggd-inline-ui.web-surface .start-over {
+          display: inline-flex;
         }
         .ggd-inline-ui .message {
           align-items: center;
@@ -677,6 +703,7 @@ function renderUi(composer: ComposerTarget | undefined) {
       <textarea class="instruction" rows="1" placeholder="Add context or revision notes, then press Enter"></textarea>
       <button type="button" class="draft">Draft</button>
       <button type="button" class="secondary regenerate">Revise</button>
+      <button type="button" class="secondary start-over">Start over</button>
       <button type="button" class="close" title="Close" aria-label="Close">
         <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
           <path d="M5.8 5.8 14.2 14.2M14.2 5.8 5.8 14.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -737,6 +764,7 @@ function renderUi(composer: ComposerTarget | undefined) {
 
   el.classList.remove("hidden");
   el.classList.toggle("floating", floating);
+  el.classList.toggle("web-surface", webSurface);
 
   const instruction = el.querySelector<HTMLTextAreaElement>(".instruction");
   const draftButton = el.querySelector<HTMLButtonElement>(".draft");
@@ -766,23 +794,43 @@ function renderUi(composer: ComposerTarget | undefined) {
   if (previousVariant) previousVariant.onclick = () => applyVariant(uiState.selectedVariantIndex - 1);
   if (nextVariant) nextVariant.onclick = () => applyVariant(uiState.selectedVariantIndex + 1);
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
+  const resetUi = () => {
+    draftRequestSequence += 1;
+    uiState.variants = [];
+    uiState.selectedVariantIndex = 0;
+    uiState.variantComposer = undefined;
+    uiState.originalComposerText = "";
+    uiState.overwriteBehavior = "replace";
+    uiState.surface = "web";
+    el.classList.remove("error", "loading", "has-draft", "has-variants", "web-result");
+    if (instruction) instruction.value = "";
+    if (resultText) resultText.textContent = "";
+    if (sourcesList) sourcesList.textContent = "No draft yet.";
+    if (variantCount) variantCount.textContent = "Draft 1 of 1";
+    if (message) message.textContent = "Page context ready. Add guidance, then draft.";
+    buttons.forEach((button) => {
+      button.disabled = false;
+    });
+  };
+  const startOverButton = el.querySelector<HTMLButtonElement>(".start-over");
+  if (startOverButton && webSurface) {
+    startOverButton.onclick = () => {
+      const currentComposer = findActiveWebComposer() ?? (lastComposer && isWebComposerUsable(lastComposer) ? lastComposer : undefined);
+      lastComposer = currentComposer;
+      pendingWebContext = extractWebContext({ composer: currentComposer });
+      activeWebConversationKey = getWebConversationKey(currentComposer, pendingWebContext);
+      resetUi();
+      instruction?.focus();
+    };
+  } else if (startOverButton) {
+    startOverButton.onclick = null;
+  }
   return {
     reset() {
-      draftRequestSequence += 1;
-      uiState.variants = [];
-      uiState.selectedVariantIndex = 0;
-      uiState.variantComposer = undefined;
-      uiState.originalComposerText = "";
-      uiState.overwriteBehavior = "replace";
-      uiState.surface = "web";
-      el.classList.remove("error", "loading", "has-draft", "has-variants", "web-result");
-      if (instruction) instruction.value = "";
-      if (resultText) resultText.textContent = "";
-      if (sourcesList) sourcesList.textContent = "No draft yet.";
-      if (variantCount) variantCount.textContent = "Draft 1 of 1";
-      buttons.forEach((button) => {
-        button.disabled = false;
-      });
+      resetUi();
+    },
+    rebindComposer(composerTarget: ComposerTarget | undefined) {
+      if (uiState.variants.length > 0) uiState.variantComposer = composerTarget;
     },
     focusInstruction() {
       instruction?.focus();
