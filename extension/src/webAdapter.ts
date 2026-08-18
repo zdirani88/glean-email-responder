@@ -16,12 +16,19 @@ const MAX_PAGE_TEXT = 20_000;
 
 export function findActiveWebComposer(): WebComposerTarget | undefined {
   const active = getDeepActiveElement();
-  if (!(active instanceof HTMLElement) || active.closest(".ggd-inline-ui")) return undefined;
+  if (active instanceof HTMLElement && !active.closest(".ggd-inline-ui")) {
+    const activeEditor = getEditableElement(active);
+    if (activeEditor && isUsableEditor(activeEditor) && isVisibleEditor(activeEditor)) {
+      return { editor: activeEditor, root: findContextRoot(activeEditor) };
+    }
+  }
 
-  const editor = getEditableElement(active);
-  if (!editor || !isUsableEditor(editor)) return undefined;
+  const editor = findBestVisibleEditor();
+  return editor ? { editor, root: findContextRoot(editor) } : undefined;
+}
 
-  return { editor, root: findContextRoot(editor) };
+export function isWebComposerUsable(composer: WebComposerTarget) {
+  return composer.editor.isConnected && composer.root.isConnected && isUsableEditor(composer.editor) && isVisibleEditor(composer.editor);
 }
 
 export function extractWebContext(options: WebExtractionOptions = {}): WebDraftRequestPayload {
@@ -58,6 +65,7 @@ export function insertWebDraft(composer: WebComposerTarget, draft: string, mode:
   editor.focus();
   const current = getWebComposerDraftText(composer).trim();
   const nextValue = mode === "append" && current ? `${current}\n\n${draft.trim()}` : draft.trim();
+  const insertedText = mode === "append" && current ? `\n\n${draft.trim()}` : draft.trim();
 
   if (editor instanceof HTMLTextAreaElement) {
     setNativeValue(editor, nextValue, HTMLTextAreaElement.prototype);
@@ -72,15 +80,21 @@ export function insertWebDraft(composer: WebComposerTarget, draft: string, mode:
     if (mode === "append" && current) range.collapse(false);
     selection?.removeAllRanges();
     selection?.addRange(range);
-    const textToInsert = mode === "append" && current ? `\n\n${draft.trim()}` : draft.trim();
-    if (!document.execCommand("insertText", false, textToInsert)) {
+    editor.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: insertedText }));
+    if (!document.execCommand("insertText", false, insertedText)) {
       if (mode === "append" && current) editor.append(document.createElement("br"), document.createElement("br"), document.createTextNode(draft.trim()));
       else editor.replaceChildren(document.createTextNode(draft.trim()));
     }
   }
 
-  editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: draft }));
+  editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: insertedText }));
   editor.dispatchEvent(new Event("change", { bubbles: true }));
+  if (!(editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement) && !containsDraftText(getWebComposerDraftText(composer), draft)) {
+    editor.replaceChildren(document.createTextNode(nextValue));
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: nextValue }));
+    editor.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  return containsDraftText(getWebComposerDraftText(composer), draft);
 }
 
 function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement, value: string, prototype: typeof HTMLInputElement.prototype | typeof HTMLTextAreaElement.prototype) {
@@ -97,7 +111,7 @@ function getDeepActiveElement(): Element | null {
 
 function getEditableElement(element: HTMLElement) {
   if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) return element;
-  return element.closest<HTMLElement>("[contenteditable='true'], [role='textbox'][contenteditable]:not([contenteditable='false'])") ?? undefined;
+  return element.closest<HTMLElement>("[contenteditable='true'], [contenteditable='plaintext-only'], [role='textbox'][contenteditable]:not([contenteditable='false'])") ?? undefined;
 }
 
 function isUsableEditor(editor: HTMLElement) {
@@ -105,7 +119,58 @@ function isUsableEditor(editor: HTMLElement) {
     return !editor.disabled && !editor.readOnly && ["text", "search", "email", "url", "tel"].includes(editor.type);
   }
   if (editor instanceof HTMLTextAreaElement) return !editor.disabled && !editor.readOnly;
-  return editor.isContentEditable || editor.getAttribute("contenteditable") === "true";
+  return editor.isContentEditable || ["true", "plaintext-only"].includes(editor.getAttribute("contenteditable") ?? "");
+}
+
+function findBestVisibleEditor() {
+  const editors = Array.from(document.querySelectorAll<HTMLElement>([
+    "textarea",
+    "input[type='text']",
+    "input[type='email']",
+    "input[type='url']",
+    "[contenteditable='true']",
+    "[contenteditable='plaintext-only']",
+    "[role='textbox'][contenteditable]:not([contenteditable='false'])",
+  ].join(", ")))
+    .filter((editor) => !editor.closest(".ggd-inline-ui") && isUsableEditor(editor) && isVisibleEditor(editor));
+
+  return editors.sort((left, right) => scoreEditor(right) - scoreEditor(left))[0];
+}
+
+function scoreEditor(editor: HTMLElement) {
+  const identity = collectEditorIdentity(editor);
+  let score = 0;
+  if (editor.matches("textarea, [contenteditable], [role='textbox']")) score += 80;
+  if (editor instanceof HTMLInputElement) score -= 80;
+  if (editor.getAttribute("role") === "textbox") score += 30;
+  if (editor.closest("[role='dialog']")) score += 30;
+  if (/(message|messaging|compose|composer|reply|inmail|conversation|msg-form)/i.test(identity)) score += 180;
+  if (/(search|filter|navigation)/i.test(identity)) score -= 180;
+  const rect = editor.getBoundingClientRect();
+  score += Math.max(0, Math.min(30, (rect.top / Math.max(window.innerHeight, 1)) * 30));
+  return score;
+}
+
+function collectEditorIdentity(editor: HTMLElement) {
+  const parts: string[] = [];
+  let element: HTMLElement | null = editor;
+  for (let depth = 0; element && depth < 5; depth += 1, element = element.parentElement) {
+    parts.push(element.id, element.className, element.getAttribute("aria-label") ?? "", element.getAttribute("data-view-name") ?? "");
+  }
+  return parts.filter((part): part is string => typeof part === "string").join(" ");
+}
+
+function isVisibleEditor(editor: HTMLElement) {
+  const style = window.getComputedStyle(editor);
+  if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+  const rect = editor.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
+}
+
+function containsDraftText(value: string, draft: string) {
+  const normalizedValue = normalizeText(value);
+  const normalizedDraft = normalizeText(draft);
+  return Boolean(normalizedDraft && normalizedValue.includes(normalizedDraft));
 }
 
 function findContextRoot(editor: HTMLElement) {
@@ -122,12 +187,18 @@ function findContextRoot(editor: HTMLElement) {
 }
 
 function extractNearbyText(composer: WebComposerTarget) {
-  return normalizeText(composer.root.innerText || composer.root.textContent || "");
+  return extractTextWithoutAssistantUi(composer.root);
 }
 
 function extractPageText() {
   const root = document.querySelector<HTMLElement>("main, [role='main'], article") ?? document.body;
-  return normalizeText(root.innerText || root.textContent || "");
+  return extractTextWithoutAssistantUi(root);
+}
+
+function extractTextWithoutAssistantUi(root: HTMLElement) {
+  const clone = root.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll(".ggd-inline-ui, .ggd-toast").forEach((element) => element.remove());
+  return normalizeText(clone.textContent || "");
 }
 
 function normalizeText(value: string) {

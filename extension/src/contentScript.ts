@@ -19,6 +19,7 @@ import {
   findActiveWebComposer,
   getWebComposerDraftText,
   insertWebDraft,
+  isWebComposerUsable,
 } from "./webAdapter";
 
 type ComposerTarget = { editor: HTMLElement; root: HTMLElement };
@@ -106,10 +107,12 @@ async function openDraftPanel() {
 }
 
 function openWebDraftPanel() {
+  draftRequestSequence += 1;
   const composer = findActiveWebComposer();
-  if (composer) lastComposer = composer;
+  lastComposer = composer;
   pendingWebContext = extractWebContext({ composer });
   const ui = renderUi(composer);
+  ui.reset();
   ui.setReady(composer ? "Page context ready. Add guidance, then draft." : "Page context ready. The result will be available to copy.");
   ui.setPlaceholder("What response should Glean draft?");
   ui.focusInstruction();
@@ -308,20 +311,19 @@ async function draftSlackReply(instructionOverride = "") {
 
 async function draftWebResponse(instructionOverride = "") {
   const requestSequence = ++draftRequestSequence;
-  const composer = lastComposer && isComposerUsable(lastComposer) ? lastComposer : findActiveWebComposer();
-  if (composer) lastComposer = composer;
+  const discoveredComposer = findActiveWebComposer();
+  const composer = discoveredComposer ?? (lastComposer && isWebComposerUsable(lastComposer) ? lastComposer : undefined);
+  lastComposer = composer;
   const ui = renderUi(composer);
   const userInstruction = combineInstructions(getInstruction(composer), instructionOverride);
   const freshContext = extractWebContext({ userInstruction, composer });
-  const payload: WebDraftRequestPayload = pendingWebContext
-    ? {
-        ...freshContext,
-        selectedText: pendingWebContext.selectedText,
-        nearbyText: pendingWebContext.nearbyText,
-        pageText: pendingWebContext.pageText,
-        userInstruction: userInstruction || freshContext.userInstruction,
-      }
-    : freshContext;
+  const capturedSelection = pendingWebContext?.pageUrl === freshContext.pageUrl ? pendingWebContext.selectedText : "";
+  const payload: WebDraftRequestPayload = {
+    ...freshContext,
+    selectedText: freshContext.selectedText || capturedSelection,
+    userInstruction: userInstruction || freshContext.userInstruction,
+  };
+  pendingWebContext = undefined;
   ui.setLoading("Drafting from this page with Glean...");
 
   const response = (await chrome.runtime.sendMessage({
@@ -338,13 +340,31 @@ async function draftWebResponse(instructionOverride = "") {
   const variants = response.data.variants?.length ? response.data.variants : [createFallbackVariant(response.data.draft)];
   const selectedIndex = response.data.selectedVariantIndex ?? 0;
   const selected = variants[selectedIndex] ?? variants[0];
-  const originalComposerText = composer ? getWebComposerDraftText(composer) : "";
-  if (composer && isComposerUsable(composer)) {
-    insertWebDraft(composer, selected?.draft ?? response.data.draft, response.data.overwriteBehavior);
+  const draft = selected?.draft ?? response.data.draft;
+  let targetComposer = composer;
+  let originalComposerText = targetComposer ? getWebComposerDraftText(targetComposer) : "";
+  let inserted = false;
+  if (targetComposer && isWebComposerUsable(targetComposer)) {
+    insertWebDraft(targetComposer, draft, response.data.overwriteBehavior);
+    await wait(80);
+    inserted = webDraftWasInserted(targetComposer, draft);
   }
-  ui.setSuccess(composer ? response.data.summary : `${response.data.summary} Copy the result below.`);
+  if (!inserted) {
+    const retryComposer = findActiveWebComposer() ?? targetComposer;
+    if (retryComposer && isWebComposerUsable(retryComposer)) {
+      if (retryComposer.editor !== targetComposer?.editor) {
+        originalComposerText = getWebComposerDraftText(retryComposer);
+      }
+      targetComposer = retryComposer;
+      lastComposer = retryComposer;
+      insertWebDraft(retryComposer, draft, response.data.overwriteBehavior);
+      await wait(80);
+      inserted = webDraftWasInserted(retryComposer, draft);
+    }
+  }
+  ui.setSuccess(inserted ? response.data.summary : `${response.data.summary} I could not insert it reliably, so copy the result below.`);
   ui.setGroundingState(response.data);
-  ui.setVariants(variants, composer, selectedIndex, response.data.overwriteBehavior, originalComposerText, "web");
+  ui.setVariants(variants, inserted ? targetComposer : undefined, selectedIndex, response.data.overwriteBehavior, originalComposerText, "web");
 }
 
 function renderUi(composer: ComposerTarget | undefined) {
@@ -747,6 +767,23 @@ function renderUi(composer: ComposerTarget | undefined) {
   if (nextVariant) nextVariant.onclick = () => applyVariant(uiState.selectedVariantIndex + 1);
   const buttons = Array.from(el.querySelectorAll<HTMLButtonElement>("button:not(.close)"));
   return {
+    reset() {
+      draftRequestSequence += 1;
+      uiState.variants = [];
+      uiState.selectedVariantIndex = 0;
+      uiState.variantComposer = undefined;
+      uiState.originalComposerText = "";
+      uiState.overwriteBehavior = "replace";
+      uiState.surface = "web";
+      el.classList.remove("error", "loading", "has-draft", "has-variants", "web-result");
+      if (instruction) instruction.value = "";
+      if (resultText) resultText.textContent = "";
+      if (sourcesList) sourcesList.textContent = "No draft yet.";
+      if (variantCount) variantCount.textContent = "Draft 1 of 1";
+      buttons.forEach((button) => {
+        button.disabled = false;
+      });
+    },
     focusInstruction() {
       instruction?.focus();
       instruction?.setSelectionRange(instruction.value.length, instruction.value.length);
@@ -855,6 +892,13 @@ function getDraftText(composer: ComposerTarget, surface: DraftSurface) {
   if (surface === "slack") return getSlackComposerDraftText(composer);
   if (surface === "web") return getWebComposerDraftText(composer);
   return getComposerDraftText(composer);
+}
+
+function webDraftWasInserted(composer: ComposerTarget, draft: string) {
+  if (!isWebComposerUsable(composer)) return false;
+  const normalize = (value: string) => value.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+  const normalizedDraft = normalize(draft);
+  return Boolean(normalizedDraft && normalize(getWebComposerDraftText(composer)).includes(normalizedDraft));
 }
 
 function insertDraftForSurface(composer: ComposerTarget, draft: string, subject: string | undefined, mode: OverwriteBehavior, surface: DraftSurface) {
