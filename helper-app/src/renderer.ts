@@ -14,6 +14,7 @@ interface ReplySettings {
 }
 
 interface HelperStatus {
+  appVersion: string;
   running: boolean;
   port: number;
   gleanServerUrl: string;
@@ -74,6 +75,7 @@ const stepExtensionDetail = document.querySelector<HTMLElement>("#stepExtensionD
 const readinessSummary = document.querySelector<HTMLElement>("#readinessSummary");
 const statusText = document.querySelector<HTMLElement>("#statusText");
 const tokenState = document.querySelector<HTMLElement>("#tokenState");
+const helperVersion = document.querySelector<HTMLElement>("#helperVersion");
 const saveButton = document.querySelector<HTMLButtonElement>("#save");
 const testButton = document.querySelector<HTMLButtonElement>("#test");
 const restartButton = document.querySelector<HTMLButtonElement>("#restart");
@@ -182,6 +184,7 @@ function renderStatus(status: HelperStatus, preserveInputs = false) {
         : "Stopped";
   }
   if (tokenState) tokenState.textContent = status.hasToken ? "Token saved securely" : "Token not set";
+  if (helperVersion) helperVersion.textContent = `Helper ${status.appVersion}`;
   if (extensionPath) extensionPath.textContent = status.extensionPath || "Not prepared yet";
   if (extensionId) extensionId.textContent = status.extensionId;
   renderSetup(status);

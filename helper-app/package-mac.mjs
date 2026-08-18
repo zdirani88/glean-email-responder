@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,6 +84,8 @@ await deletePlistKey(plistPath, ":ElectronAsarIntegrity");
 await execFileAsync("codesign", ["--force", "--deep", "--sign", "-", appBundle]);
 await execFileAsync("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", appBundle, zipPath]);
 console.log(`Created ${zipPath}`);
+
+await symlink("/Applications", join(releaseDir, "Applications"));
 
 try {
   await execFileAsync("hdiutil", [

@@ -21,6 +21,7 @@ interface HelperConfig {
 }
 
 interface PublicStatus {
+  appVersion: string;
   running: boolean;
   port: number;
   gleanServerUrl: string;
@@ -255,6 +256,7 @@ function getPublicStatus(): PublicStatus {
   const bundledExtension = getExtensionFolderStatus(bundledExtensionPath);
   const installableExtension = getExtensionFolderStatus(installableExtensionPath);
   const status: PublicStatus = {
+    appVersion: app.getVersion(),
     running: Boolean(server?.listening),
     port: currentConfig.port,
     gleanServerUrl: currentConfig.gleanServerUrl,
@@ -274,16 +276,19 @@ function getPublicStatus(): PublicStatus {
 }
 
 function getBundledExtensionPath() {
-  const fallbackPath = app.isPackaged ? join(process.resourcesPath, "extension") : resolve(app.getAppPath(), "..", "..", "extension", "dist");
-  const candidates: string[] = app.isPackaged
-    ? [
-        fallbackPath,
-        resolve(app.getAppPath(), "..", "extension"),
-        resolve(app.getAppPath(), "..", "..", "extension"),
-        // Support helper bundles created before the extension moved under Resources.
-        resolve(app.getAppPath(), "..", "..", "extension", "dist"),
-      ]
-    : [fallbackPath];
+  const packagedExtensionPath = join(process.resourcesPath, "extension");
+  const developmentExtensionPath = resolve(app.getAppPath(), "..", "..", "extension", "dist");
+  const candidates = uniquePaths([
+    // Check the actual Electron resources directory regardless of app.isPackaged.
+    // Locally signed builds use an unpacked Resources/app payload, which Electron
+    // can classify as a development app even though it is running from a DMG.
+    packagedExtensionPath,
+    resolve(app.getAppPath(), "..", "extension"),
+    developmentExtensionPath,
+    // Support helper bundles created before the extension moved under Resources.
+    resolve(app.getAppPath(), "..", "..", "extension"),
+    resolve(app.getAppPath(), "..", "extension", "dist"),
+  ]);
 
   for (const candidate of candidates) {
     if (existsSync(join(candidate, "manifest.json"))) {
@@ -291,7 +296,7 @@ function getBundledExtensionPath() {
     }
   }
 
-  return fallbackPath;
+  return app.isPackaged ? packagedExtensionPath : developmentExtensionPath;
 }
 
 function getInstallableExtensionPath() {
